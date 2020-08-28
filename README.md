@@ -1,28 +1,17 @@
 <div align="center">
-  <img src="docs/imgs/mmaction2-logo.png" width="500"/>
+  <img src="docs/imgs/mmaction2_logo.png" width="500"/>
 </div>
-
-<div align="left">
-    <a href='https://pypi.org/project/mmaction2/'>
-        <img alt="PyPI" src="https://img.shields.io/pypi/v/mmaction2">
-    </a>
-    <a href='https://mmaction2.readthedocs.io/en/latest/'>
-        <img src='https://readthedocs.org/projects/mmaction2/badge/?version=latest' alt='Documentation Status' />
-    </a>
-    <a href='https://github.com/open-mmlab/mmaction2/actions'>
-        <img src='https://github.com/open-mmlab/mmaction2/workflows/build/badge.svg' />
-    </a>
-    <a href="https://codecov.io/gh/open-mmlab/mmaction2">
-        <img src="https://codecov.io/gh/open-mmlab/mmaction2/branch/master/graph/badge.svg" />
-    </a>
-    <a href="https://github.com/open-mmlab/mmaction2/blob/master/LICENSE">
-        <img src="https://img.shields.io/github/license/open-mmlab/mmaction2.svg">
-    </a>
-</div>
-
-Documentation: https://mmaction2.readthedocs.io/.
 
 ## Introduction
+
+[![Documentation](https://readthedocs.org/projects/mmaction2/badge/?version=latest)](https://mmaction2.readthedocs.io/en/latest/)
+[![actions](https://github.com/open-mmlab/mmaction2/workflows/build/badge.svg)](https://github.com/open-mmlab/mmaction2/actions)
+[![codecov](https://codecov.io/gh/open-mmlab/mmaction2/branch/master/graph/badge.svg)](https://codecov.io/gh/open-mmlab/mmaction2)
+[![PyPI](https://img.shields.io/pypi/v/mmaction2)](https://pypi.org/project/mmaction2/)
+[![LICENSE](https://img.shields.io/github/license/open-mmlab/mmaction2.svg)](https://github.com/open-mmlab/mmaction2/blob/master/LICENSE)
+[![Average time to resolve an issue](https://isitmaintained.com/badge/resolution/open-mmlab/mmaction2.svg)](https://github.com/open-mmlab/mmaction2/issues)
+[![Percentage of issues still open](https://isitmaintained.com/badge/open/open-mmlab/mmaction2.svg)](https://github.com/open-mmlab/mmaction2/issues)
+
 
 MMAction2 is an open-source toolbox for action understanding based on PyTorch.
 It is a part of the [OpenMMLab](http://openmmlab.org/) project.
@@ -30,7 +19,7 @@ It is a part of the [OpenMMLab](http://openmmlab.org/) project.
 The master branch works with **PyTorch 1.3+**.
 
 <div align="center">
-  <img src="demo/demo.gif" width="600px"/>
+  <img src="docs/imgs/mmaction2_overview.gif" width="600px"/>
 </div>
 
 ### Major Features
@@ -48,7 +37,7 @@ The master branch works with **PyTorch 1.3+**.
 
   MMAction2 implements popular frameworks for action understanding:
 
-  - For action recognition, various algorithms are implemented, including TSN, TSM, R(2+1)D, I3D, SlowOnly, SlowFast.
+  - For action recognition, various algorithms are implemented, including TSN, TSM, R(2+1)D, I3D, SlowOnly, SlowFast, Non-local.
 
   - For temporal action localization, we implement BSN, BMN.
 
@@ -60,9 +49,21 @@ The master branch works with **PyTorch 1.3+**.
 
 This project is released under the [Apache 2.0 license](LICENSE).
 
-## Model Zoo
+## Benchmark
+| Model  |input| io backend | batch size x gpus | MMAction2 (s/iter) | MMAction (s/iter) | Temporal-Shift-Module (s/iter) | PySlowFast (s/iter) |
+| :--- | :---------------:|:---------------:| :---------------:| :---------------:  | :--------------------: | :----------------------------: | :-----------------: |
+| [TSN](/configs/recognition/tsn/tsn_r50_1x1x3_100e_kinetics400_rgb.py)| 256p rawframes |Memcached| 32x8|**[0.32](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/mmaction2/tsn_256p_rawframes_memcahed_32x8.zip)** | [0.38](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/mmaction/tsn_256p_rawframes_memcached_32x8.zip)| [0.42](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/temporal_shift_module/tsn_256p_rawframes_memcached_32x8.zip)| x |
+| [TSN](/configs/recognition/tsn/tsn_r50_video_1x1x3_100e_kinetics400_rgb.py)| 256p dense-encoded video |Disk| 32x8|**[0.61](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/mmaction2/tsn_256p_fast_videos_disk_32x8.zip)**| x | x | TODO |
+|[I3D heavy](/configs/recognition/i3d/i3d_r50_video_heavy_8x8x1_100e_kinetics400_rgb.py)|256p videos|Disk |8x8| **[0.34](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/mmaction2/i3d_heavy_256p_videos_disk_8x8.zip)** | x | x | [0.44](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/pyslowfast/pysf_i3d_r50_8x8_video.log) |
+| [I3D](/configs/recognition/i3d/i3d_r50_32x2x1_100e_kinetics400_rgb.py)|256p rawframes|Memcached|8x8| **[0.43](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/mmaction2/i3d_256p_rawframes_memcahed_8x8.zip)** | [0.56](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/mmaction/i3d_256p_rawframes_memcached_8x8.zip) | x | x |
+| [TSM](/configs/recognition/tsm/tsm_r50_1x1x8_50e_kinetics400_rgb.py) |256p rawframes|Memcached| 8x8|**[0.31](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/mmaction2/tsm_256p_rawframes_memcahed_8x8.zip)** | x | [0.41](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/temporal_shift_module/tsm_256p_rawframes_memcached_8x8.zip) | x |
+| [Slowonly](/configs/recognition/slowonly/slowonly_r50_video_4x16x1_256e_kinetics400_rgb.py)|256p videos|Disk|8x8 | **[0.32](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/mmaction2/slowonly_256p_videos_disk_8x8.zip)** | TODO | x | [0.34](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/pyslowfast/pysf_slowonly_r50_4x16_video.log) |
+| [Slowfast](/configs/recognition/slowfast/slowfast_r50_video_4x16x1_256e_kinetics400_rgb.py)|256p videos|Disk|8x8 | **[0.69](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/mmaction2/slowfast_256p_videos_disk_8x8.zip)** | x | x | [1.04](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/pyslowfast/pysf_slowfast_r50_4x16_video.log) |
+| [R(2+1)D](/configs/recognition/r2plus1d/r2plus1d_r34_video_8x8x1_180e_kinetics400_rgb.py)|256p videos |Disk| 8x8|**[0.45](https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/benchmark/recognition/mmaction2/r2plus1d_256p_videos_disk_8x8.zip)** | x | x | x |
 
+Details can be found in [benchmark](docs/benchmark.md).
 
+## ModelZoo
 Supported methods for action recognition:
 - [x] [TSN](configs/recognition/tsn/README.md)
 - [x] [TSM](configs/recognition/tsm/README.md)
@@ -70,6 +71,7 @@ Supported methods for action recognition:
 - [x] [I3D](configs/recognition/i3d/README.md)
 - [x] [SlowOnly](configs/recognition/slowonly/README.md)
 - [x] [SlowFast](configs/recognition/slowfast/README.md)
+- [x] [CSN](configs/recognition/csn)
 
 Supported methods for action localization:
 - [x] [BMN](configs/localization/bmn/README.md)
@@ -102,11 +104,3 @@ We appreciate all contributions to improve MMAction2. Please refer to [CONTRIBUT
 MMAction2 is an open source project that is contributed by researchers and engineers from various colleges and companies.
 We appreciate all the contributors who implement their methods or add new features, as well as users who give valuable feedbacks.
 We wish that the toolbox and benchmark could serve the growing research community by providing a flexible toolkit to reimplement existing methods and develop their own new models.
-
-## Contact
-If you have any question, please file an issue or contact the authors:
-
-* [<img src="https://github.com/dreamerlin.png" width="24" height="24" alt="@dreamerlin"> @dreamerlin](https://github.com/dreamerlin) Jintao Lin
-* [<img src="https://github.com/JoannaLXY.png" width="24" height="24" alt="@JoannaLXY"> @JoannaLXY](https://github.com/JoannaLXY) Xuanyi Li
-* [<img src="https://github.com/SuX97.png" width="24" height="24" alt="@SuX97"> @SuX97](https://github.com/SuX97) Su Xu
-* [<img src="https://github.com/kennymckormick.png" width="24" height="24" alt="@kennymckormick"> @kennymckormick](https://github.com/kennymckormick) Haodong Duan

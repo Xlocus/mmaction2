@@ -45,12 +45,7 @@ img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_bgr=False)
 train_pipeline = [
     dict(type='DecordInit'),
-    dict(
-        type='SampleFrames',
-        clip_len=32,
-        frame_interval=2,
-        num_clips=1,
-        start_index=0),
+    dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=1),
     dict(type='DecordDecode'),
     dict(type='Resize', scale=(-1, 256)),
     dict(type='RandomResizedCrop'),
@@ -68,7 +63,6 @@ val_pipeline = [
         clip_len=32,
         frame_interval=2,
         num_clips=1,
-        start_index=0,
         test_mode=True),
     dict(type='DecordDecode'),
     dict(type='Resize', scale=(-1, 256)),
@@ -86,7 +80,6 @@ test_pipeline = [
         clip_len=32,
         frame_interval=2,
         num_clips=10,
-        start_index=0,
         test_mode=True),
     dict(type='DecordDecode'),
     dict(type='Resize', scale=(-1, 256)),
@@ -121,7 +114,12 @@ optimizer = dict(
     weight_decay=0.0001)  # this lr is used for 8 gpus
 optimizer_config = dict(grad_clip=dict(max_norm=40, norm_type=2))
 # learning policy
-lr_config = dict(policy='CosineAnnealing', min_lr=0)
+lr_config = dict(
+    policy='CosineAnnealing',
+    min_lr=0,
+    warmup='linear',
+    warmup_by_epoch=True,
+    warmup_iters=34)
 total_epochs = 256
 checkpoint_config = dict(interval=4)
 workflow = [('train', 1)]

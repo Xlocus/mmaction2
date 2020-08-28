@@ -6,8 +6,10 @@ import torch
 import torch.nn as nn
 from mmcv.utils import _BatchNorm
 
-from mmaction.models import (ResNet, ResNet2Plus1d, ResNet3d, ResNet3dSlowFast,
-                             ResNet3dSlowOnly, ResNetTSM)
+from mmaction.models import (ResNet, ResNet2Plus1d, ResNet3d, ResNet3dCSN,
+                             ResNet3dSlowFast, ResNet3dSlowOnly, ResNetTIN,
+                             ResNetTSM)
+from mmaction.models.backbones.resnet_tsm import NL3DWrapper
 
 
 def check_norm_state(modules, train_state):
@@ -83,6 +85,21 @@ def test_resnet_backbone():
                 assert mod.training is False
         for param in layer.parameters():
             assert param.requires_grad is False
+
+    # resnet with depth 50, partial batchnorm
+    resnet_pbn = ResNet(50, partial_bn=True)
+    resnet_pbn.train()
+    count_bn = 0
+    for m in resnet_pbn.modules():
+        if isinstance(m, nn.BatchNorm2d):
+            assert m.training is False
+            count_bn += 1
+            if count_bn >= 2:
+                assert m.weight.requires_grad is False
+                assert m.bias.requires_grad is False
+            else:
+                assert m.weight.requires_grad is True
+                assert m.bias.requires_grad is True
 
     input_shape = (1, 3, 64, 64)
     imgs = _demo_inputs(input_shape)
@@ -374,6 +391,29 @@ def test_resnet3d_backbone():
         feat = resnet3d_34_1x1x1(imgs)
         assert feat.shape == torch.Size([1, 512, 1, 2, 2])
 
+    # resnet3d with non-local module
+    non_local_cfg = dict(
+        sub_sample=True,
+        use_scale=False,
+        norm_cfg=dict(type='BN3d', requires_grad=True),
+        mode='embedded_gaussian')
+    non_local = ((0, 0, 0), (1, 0, 1, 0), (1, 0, 1, 0, 1, 0), (0, 0, 0))
+    resnet3d_nonlocal = ResNet3d(
+        50,
+        None,
+        pretrained2d=False,
+        non_local=non_local,
+        non_local_cfg=non_local_cfg)
+    resnet3d_nonlocal.init_weights()
+    for layer_name in ['layer2', 'layer3']:
+        layer = getattr(resnet3d_nonlocal, layer_name)
+        for i, _ in enumerate(layer):
+            if i % 2 == 0:
+                assert hasattr(layer[i], 'non_local_block')
+
+    feat = resnet3d_nonlocal(imgs)
+    assert feat.shape == torch.Size([1, 2048, 1, 2, 2])
+
 
 def test_resnet2plus1d_backbone():
     # Test r2+1d backbone
@@ -476,6 +516,9 @@ def test_resnet_tsm_backbone():
     from mmaction.models.backbones.resnet_tsm import TemporalShift
     from mmaction.models.backbones.resnet import Bottleneck
 
+    input_shape = (8, 3, 64, 64)
+    imgs = _demo_inputs(input_shape)
+
     # resnet_tsm with depth 50
     resnet_tsm_50 = ResNetTSM(50)
     resnet_tsm_50.init_weights()
@@ -524,14 +567,46 @@ def test_resnet_tsm_backbone():
             assert block.conv1.conv.shift_div == resnet_tsm_50_temporal_pool.shift_div  # noqa: E501
             assert isinstance(block.conv1.conv.net, nn.Conv2d)
 
-    input_shape = (8, 3, 64, 64)
-    imgs = _demo_inputs(input_shape)
+    # resnet_tsm with non-local module
+    non_local_cfg = dict(
+        sub_sample=True,
+        use_scale=False,
+        norm_cfg=dict(type='BN3d', requires_grad=True),
+        mode='embedded_gaussian')
+    non_local = ((0, 0, 0), (1, 0, 1, 0), (1, 0, 1, 0, 1, 0), (0, 0, 0))
+    resnet_tsm_nonlocal = ResNetTSM(
+        50, non_local=non_local, non_local_cfg=non_local_cfg)
+    resnet_tsm_nonlocal.init_weights()
+    for layer_name in ['layer2', 'layer3']:
+        layer = getattr(resnet_tsm_nonlocal, layer_name)
+        for i, _ in enumerate(layer):
+            if i % 2 == 0:
+                assert isinstance(layer[i], NL3DWrapper)
 
+    resnet_tsm_50_full = ResNetTSM(
+        50,
+        non_local=non_local,
+        non_local_cfg=non_local_cfg,
+        temporal_pool=True)
+    resnet_tsm_50_full.init_weights()
+
+    # TSM forword
     feat = resnet_tsm_50(imgs)
     assert feat.shape == torch.Size([8, 2048, 2, 2])
 
+    # TSM with non-local forward
+    feat = resnet_tsm_nonlocal(imgs)
+    assert feat.shape == torch.Size([8, 2048, 2, 2])
+
+    # TSM with temporal pool forward
     feat = resnet_tsm_50_temporal_pool(imgs)
     assert feat.shape == torch.Size([4, 2048, 2, 2])
+
+    # TSM with temporal pool + non-local forward
+    input_shape = (16, 3, 32, 32)
+    imgs = _demo_inputs(input_shape)
+    feat = resnet_tsm_50_full(imgs)
+    assert feat.shape == torch.Size([8, 2048, 1, 1])
 
 
 def test_slowfast_backbone():
@@ -675,6 +750,125 @@ def test_slowonly_backbone():
     else:
         feat = so_50(imgs)
     assert feat.shape == torch.Size([1, 2048, 8, 2, 2])
+
+
+def test_resnet_csn_backbone():
+    """Test resnet_csn backbone."""
+    with pytest.raises(ValueError):
+        # Bottleneck mode must be "ip" or "ir"
+        ResNet3dCSN(152, None, bottleneck_mode='id')
+
+    input_shape = (2, 3, 6, 64, 64)
+    imgs = _demo_inputs(input_shape)
+
+    resnet3d_csn_frozen = ResNet3dCSN(
+        152, None, bn_frozen=True, norm_eval=True)
+    resnet3d_csn_frozen.train()
+    for m in resnet3d_csn_frozen.modules():
+        if isinstance(m, _BatchNorm):
+            for param in m.parameters():
+                assert param.requires_grad is False
+
+    # Interaction-preserved channel-separated bottleneck block
+    resnet3d_csn_ip = ResNet3dCSN(152, None, bottleneck_mode='ip')
+    resnet3d_csn_ip.init_weights()
+    resnet3d_csn_ip.train()
+    for i, layer_name in enumerate(resnet3d_csn_ip.res_layers):
+        layers = getattr(resnet3d_csn_ip, layer_name)
+        num_blocks = resnet3d_csn_ip.stage_blocks[i]
+        assert len(layers) == num_blocks
+        for layer in layers:
+            assert isinstance(layer.conv2, nn.Sequential)
+            assert len(layer.conv2) == 2
+            assert layer.conv2[1].groups == layer.planes
+    if torch.__version__ == 'parrots':
+        if torch.cuda.is_available():
+            resnet3d_csn_ip = resnet3d_csn_ip.cuda()
+            imgs_gpu = imgs.cuda()
+            feat = resnet3d_csn_ip(imgs_gpu)
+            assert feat.shape == torch.Size([2, 2048, 1, 2, 2])
+    else:
+        feat = resnet3d_csn_ip(imgs)
+        assert feat.shape == torch.Size([2, 2048, 1, 2, 2])
+
+    # Interaction-reduced channel-separated bottleneck block
+    resnet3d_csn_ir = ResNet3dCSN(152, None, bottleneck_mode='ir')
+    resnet3d_csn_ir.init_weights()
+    resnet3d_csn_ir.train()
+    for i, layer_name in enumerate(resnet3d_csn_ir.res_layers):
+        layers = getattr(resnet3d_csn_ir, layer_name)
+        num_blocks = resnet3d_csn_ir.stage_blocks[i]
+        assert len(layers) == num_blocks
+        for layer in layers:
+            assert isinstance(layer.conv2, nn.Sequential)
+            assert len(layer.conv2) == 1
+            assert layer.conv2[0].groups == layer.planes
+    if torch.__version__ == 'parrots':
+        if torch.cuda.is_available():
+            resnet3d_csn_ir = resnet3d_csn_ir.cuda()
+            imgs_gpu = imgs.cuda()
+            feat = resnet3d_csn_ir(imgs_gpu)
+            assert feat.shape == torch.Size([2, 2048, 1, 2, 2])
+    else:
+        feat = resnet3d_csn_ir(imgs)
+        assert feat.shape == torch.Size([2, 2048, 1, 2, 2])
+
+    # Set training status = False
+    resnet3d_csn_ip = ResNet3dCSN(152, None, bottleneck_mode='ip')
+    resnet3d_csn_ip.init_weights()
+    resnet3d_csn_ip.train(False)
+    for module in resnet3d_csn_ip.children():
+        assert module.training is False
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason='requires CUDA support')
+def test_resnet_tin_backbone():
+    """Test resnet_tin backbone."""
+    with pytest.raises(AssertionError):
+        # num_segments should be positive
+        resnet_tin = ResNetTIN(50, num_segments=-1)
+        resnet_tin.init_weights()
+
+    from mmaction.models.backbones.resnet_tin import \
+        TemporalInterlace, CombineNet
+
+    # resnet_tin with normal config
+    resnet_tin = ResNetTIN(50)
+    resnet_tin.init_weights()
+    for layer_name in resnet_tin.res_layers:
+        layer = getattr(resnet_tin, layer_name)
+        blocks = list(layer.children())
+        for block in blocks:
+            assert isinstance(block.conv1.conv, CombineNet)
+            assert isinstance(block.conv1.conv.net1, TemporalInterlace)
+            assert (
+                block.conv1.conv.net1.num_segments == resnet_tin.num_segments)
+            assert block.conv1.conv.net1.shift_div == resnet_tin.shift_div
+
+    # resnet_tin with partial batchnorm
+    resnet_tin_pbn = ResNetTIN(50, partial_bn=True)
+    resnet_tin_pbn.train()
+    count_bn = 0
+    for m in resnet_tin_pbn.modules():
+        if isinstance(m, nn.BatchNorm2d):
+            count_bn += 1
+            if count_bn >= 2:
+                assert m.training is False
+                assert m.weight.requires_grad is False
+                assert m.bias.requires_grad is False
+            else:
+                assert m.training is True
+                assert m.weight.requires_grad is True
+                assert m.bias.requires_grad is True
+
+    input_shape = (8, 3, 64, 64)
+    imgs = _demo_inputs(input_shape).cuda()
+    resnet_tin = resnet_tin.cuda()
+
+    # resnet_tin with normal cfg inference
+    feat = resnet_tin(imgs)
+    assert feat.shape == torch.Size([8, 2048, 2, 2])
 
 
 def _demo_inputs(input_shape=(1, 3, 64, 64)):

@@ -5,6 +5,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
+from mmcv.runner import auto_fp16
 
 from .. import builder
 
@@ -34,11 +35,14 @@ class BaseRecognizer(nn.Module, metaclass=ABCMeta):
         self.test_cfg = test_cfg
         self.init_weights()
 
+        self.fp16_enabled = False
+
     def init_weights(self):
         """Initialize the model network weights."""
         self.backbone.init_weights()
         self.cls_head.init_weights()
 
+    @auto_fp16()
     def extract_feat(self, imgs):
         """Extract features through a backbone.
 
@@ -164,7 +168,7 @@ class BaseRecognizer(nn.Module, metaclass=ABCMeta):
         imgs = data_batch['imgs']
         label = data_batch['label']
 
-        losses = self.forward(imgs, label)
+        losses = self(imgs, label)
 
         loss, log_vars = self._parse_losses(losses)
 
@@ -183,9 +187,15 @@ class BaseRecognizer(nn.Module, metaclass=ABCMeta):
         not implemented with this method, but an evaluation hook.
         """
         imgs = data_batch['imgs']
+        label = data_batch['label']
 
-        results = self.forward(imgs, None, return_loss=False)
+        losses = self(imgs, label)
 
-        outputs = dict(results=results)
+        loss, log_vars = self._parse_losses(losses)
+
+        outputs = dict(
+            loss=loss,
+            log_vars=log_vars,
+            num_samples=len(next(iter(data_batch.values()))))
 
         return outputs

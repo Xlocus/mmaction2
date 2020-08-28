@@ -28,12 +28,7 @@ img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_bgr=False)
 train_pipeline = [
     dict(type='DecordInit'),
-    dict(
-        type='DenseSampleFrames',
-        clip_len=1,
-        frame_interval=1,
-        num_clips=8,
-        start_index=0),
+    dict(type='DenseSampleFrames', clip_len=1, frame_interval=1, num_clips=8),
     dict(type='DecordDecode'),
     dict(
         type='MultiScaleCrop',
@@ -55,7 +50,6 @@ val_pipeline = [
         clip_len=1,
         frame_interval=1,
         num_clips=8,
-        start_index=0,
         test_mode=True),
     dict(type='DecordDecode'),
     dict(type='Resize', scale=(-1, 256)),
@@ -72,8 +66,7 @@ test_pipeline = [
         type='DenseSampleFrames',
         clip_len=1,
         frame_interval=1,
-        num_clips=25,
-        start_index=0,
+        num_clips=8,
         test_mode=True),
     dict(type='DecordDecode'),
     dict(type='Resize', scale=(-1, 256)),

@@ -11,6 +11,7 @@ model = dict(
             depth=50,
             pretrained=None,
             lateral=True,
+            fusion_kernel=7,
             conv1_kernel=(1, 7, 7),
             dilations=(1, 1, 1, 1),
             conv1_stride_t=1,
@@ -45,7 +46,7 @@ img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_bgr=False)
 train_pipeline = [
     dict(type='SampleFrames', clip_len=32, frame_interval=2, num_clips=1),
-    dict(type='FrameSelector'),
+    dict(type='RawFrameDecode'),
     dict(type='Resize', scale=(-1, 256)),
     dict(type='RandomResizedCrop'),
     dict(type='Resize', scale=(224, 224), keep_ratio=False),
@@ -62,7 +63,7 @@ val_pipeline = [
         frame_interval=2,
         num_clips=1,
         test_mode=True),
-    dict(type='FrameSelector'),
+    dict(type='RawFrameDecode'),
     dict(type='Resize', scale=(-1, 256)),
     dict(type='CenterCrop', crop_size=224),
     dict(type='Flip', flip_ratio=0),
@@ -78,7 +79,7 @@ test_pipeline = [
         frame_interval=2,
         num_clips=10,
         test_mode=True),
-    dict(type='FrameSelector'),
+    dict(type='RawFrameDecode'),
     dict(type='Resize', scale=(-1, 256)),
     dict(type='ThreeCrop', crop_size=256),
     dict(type='Flip', flip_ratio=0),
@@ -111,7 +112,12 @@ optimizer = dict(
     weight_decay=0.0001)  # this lr is used for 8 gpus
 optimizer_config = dict(grad_clip=dict(max_norm=40, norm_type=2))
 # learning policy
-lr_config = dict(policy='CosineAnnealing', min_lr=0)
+lr_config = dict(
+    policy='CosineAnnealing',
+    min_lr=0,
+    warmup='linear',
+    warmup_by_epoch=True,
+    warmup_iters=34)
 total_epochs = 256
 checkpoint_config = dict(interval=4)
 workflow = [('train', 1)]

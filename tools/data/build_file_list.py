@@ -1,9 +1,12 @@
 import argparse
 import glob
+import json
 import os.path as osp
 import random
 
-from tools.data.parse_file_list import (parse_directory, parse_kinetics_splits,
+from tools.data.anno_txt2json import lines2dictlist
+from tools.data.parse_file_list import (parse_directory, parse_hmdb51_split,
+                                        parse_kinetics_splits,
                                         parse_mit_splits, parse_mmit_splits,
                                         parse_sthv1_splits, parse_sthv2_splits,
                                         parse_ucf101_splits)
@@ -16,7 +19,7 @@ def parse_args():
         type=str,
         choices=[
             'ucf101', 'kinetics400', 'thumos14', 'sthv1', 'sthv2', 'mit',
-            'mmit', 'activitynet'
+            'mmit', 'activitynet', 'hmdb51'
         ],
         help='dataset to be built file list')
     parser.add_argument(
@@ -61,6 +64,12 @@ def parse_args():
         type=str,
         default='data/',
         help='root path for output')
+    parser.add_argument(
+        '--output-format',
+        type=str,
+        default='txt',
+        choices=['txt', 'json'],
+        help='built file list format')
     parser.add_argument(
         '--shuffle',
         action='store_true',
@@ -149,19 +158,9 @@ def build_file_list(splits, frame_info, shuffle=False):
 def main():
     args = parse_args()
 
-    if args.level == 2:
-        # search for two-level directory
-        def key_func(x):
-            return '/'.join(x.split('/')[-2:])
-    else:
-        # Only search for one-level directory
-        def key_func(x):
-            return x.split('/')[-1]
-
     if args.format == 'rawframes':
         frame_info = parse_directory(
             args.src_folder,
-            key_func=key_func,
             rgb_prefix=args.rgb_prefix,
             flow_x_prefix=args.flow_x_prefix,
             flow_y_prefix=args.flow_y_prefix,
@@ -179,8 +178,7 @@ def main():
         for video in video_list:
             video_path = osp.relpath(video, args.src_folder)
             # video_id: (video_relative_path, -1, -1)
-            frame_info['.'.join(video_path.split('.')[:-1])] = (video_path, -1,
-                                                                -1)
+            frame_info[osp.splitext(video_path)[0]] = (video_path, -1, -1)
     else:
         raise NotImplementedError('only rawframes and videos are supported')
 
@@ -191,11 +189,13 @@ def main():
     elif args.dataset == 'sthv2':
         splits = parse_sthv2_splits(args.level)
     elif args.dataset == 'mit':
-        splits = parse_mit_splits(args.level)
+        splits = parse_mit_splits()
     elif args.dataset == 'mmit':
-        splits = parse_mmit_splits(args.level)
+        splits = parse_mmit_splits()
     elif args.dataset == 'kinetics400':
         splits = parse_kinetics_splits(args.level)
+    elif args.dataset == 'hmdb51':
+        splits = parse_hmdb51_split(args.level)
     else:
         raise ValueError(
             f"Supported datasets are 'ucf101, sthv1, sthv2',"
@@ -209,17 +209,24 @@ def main():
         for i, split in enumerate(splits):
             file_lists = build_file_list(
                 split, frame_info, shuffle=args.shuffle)
-
-            filename = f'{args.dataset}_train_split_{i+1}_{args.format}.txt'
-            with open(osp.join(out_path, filename), 'w') as f:
-                f.writelines(file_lists[0][0])
-
-            filename = f'{args.dataset}_val_split_{i+1}_{args.format}.txt'
-            with open(osp.join(out_path, filename), 'w') as f:
-                f.writelines(file_lists[0][1])
+            train_name = f'{args.dataset}_train_split_{i+1}_{args.format}.txt'
+            val_name = f'{args.dataset}_val_split_{i+1}_{args.format}.txt'
+            if args.output_format == 'txt':
+                with open(osp.join(out_path, train_name), 'w') as f:
+                    f.writelines(file_lists[0][0])
+                with open(osp.join(out_path, val_name), 'w') as f:
+                    f.writelines(file_lists[0][1])
+            elif args.output_format == 'json':
+                train_list = lines2dictlist(file_lists[0][0])
+                val_list = lines2dictlist(file_lists[0][1])
+                train_name = train_name.replace('.txt', '.json')
+                val_name = val_name.replace('.txt', '.json')
+                with open(osp.join(out_path, train_name), 'w') as f:
+                    json.dump(train_list, f)
+                with open(osp.join(out_path, val_name), 'w') as f:
+                    json.dump(val_list, f)
     else:
         lists = build_file_list(splits[0], frame_info, shuffle=args.shuffle)
-        filename = f'{args.dataset}_{args.subset}_list_{args.format}.txt'
 
         if args.subset == 'train':
             ind = 0
@@ -231,8 +238,15 @@ def main():
             raise ValueError(f"subset must be in ['train', 'val', 'test'], "
                              f'but got {args.subset}.')
 
-        with open(osp.join(out_path, filename), 'w') as f:
-            f.writelines(lists[0][ind])
+        filename = f'{args.dataset}_{args.subset}_list_{args.format}.txt'
+        if args.output_format == 'txt':
+            with open(osp.join(out_path, filename), 'w') as f:
+                f.writelines(lists[0][ind])
+        elif args.output_format == 'json':
+            data_list = lines2dictlist(lists[0][ind])
+            filename = filename.replace('.txt', '.json')
+            with open(osp.join(out_path, filename), 'w') as f:
+                json.dump(data_list, f)
 
 
 if __name__ == '__main__':

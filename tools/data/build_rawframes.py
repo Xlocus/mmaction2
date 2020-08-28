@@ -10,19 +10,18 @@ import mmcv
 import numpy as np
 
 
-def extract_frame(vid_item, dev_id=0):
+def extract_frame(vid_item):
     """Generate optical flow using dense flow.
 
     Args:
         vid_item (list): Video item containing video full path,
             video (short) path, video id.
-        dev_id (int): Device id.
 
     Returns:
         bool: Whether generate optical flow successfully.
     """
     full_path, vid_path, vid_id, method, task = vid_item
-    if ('/' in vid_path):
+    if '/' in vid_path:
         act_name = osp.basename(osp.dirname(vid_path))
         out_full_path = osp.join(args.out_dir, act_name)
     else:
@@ -212,10 +211,12 @@ if __name__ == '__main__':
 
     if args.level == 2:
         vid_list = list(
-            map(lambda p: osp.join('/'.join(p.split('/')[-2:])),
+            map(
+                lambda p: osp.join(
+                    osp.basename(osp.dirname(p)), osp.basename(p)),
                 fullpath_list))
     elif args.level == 1:
-        vid_list = list(map(lambda p: p.split('/')[-1], fullpath_list))
+        vid_list = list(map(lambda p: osp.basename(p), fullpath_list))
 
     pool = Pool(args.num_worker)
     pool.map(
