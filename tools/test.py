@@ -1,9 +1,13 @@
 import argparse
 import os
+import os.path as osp
+import warnings
 
 import mmcv
 import torch
+from mmcv import Config, DictAction
 from mmcv.cnn import fuse_conv_bn
+from mmcv.fileio.io import file_handlers
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import get_dist_info, init_dist, load_checkpoint
 from mmcv.runner.fp16_utils import wrap_fp16_model
@@ -19,7 +23,9 @@ def parse_args():
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
     parser.add_argument(
-        '--out', default=None, help='output result file in pickle format')
+        '--out',
+        default=None,
+        help='output result file in pkl/yaml/json format')
     parser.add_argument(
         '--fuse-conv-bn',
         action='store_true',
@@ -39,11 +45,33 @@ def parse_args():
         '--tmpdir',
         help='tmp directory used for collecting results from multiple '
         'workers, available when gpu-collect is not specified')
-    parser.add_argument('--options', nargs='+', help='custom options')
+    parser.add_argument(
+        '--options',
+        nargs='+',
+        action=DictAction,
+        default={},
+        help='custom options for evaluation, the key-value pair in xxx=yyy '
+        'format will be kwargs for dataset.evaluate() function (deprecate), '
+        'change to --eval-options instead.')
+    parser.add_argument(
+        '--eval-options',
+        nargs='+',
+        action=DictAction,
+        default={},
+        help='custom options for evaluation, the key-value pair in xxx=yyy '
+        'format will be kwargs for dataset.evaluate() function')
+    parser.add_argument(
+        '--cfg-options',
+        nargs='+',
+        action=DictAction,
+        default={},
+        help='override some settings in the used config, the key-value pair '
+        'in xxx=yyy format will be merged into config file. For example, '
+        "'--cfg-options model.backbone.depth=18 model.backbone.with_cp=True'")
     parser.add_argument(
         '--average-clips',
-        choices=['score', 'prob'],
-        default='score',
+        choices=['score', 'prob', None],
+        default=None,
         help='average type when averaging test clips')
     parser.add_argument(
         '--launcher',
@@ -54,40 +82,47 @@ def parse_args():
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
+
+    if args.options and args.eval_options:
+        raise ValueError(
+            '--options and --eval-options cannot be both '
+            'specified, --options is deprecated in favor of --eval-options')
+    if args.options:
+        warnings.warn('--options is deprecated in favor of --eval-options')
+        args.eval_options = args.options
     return args
-
-
-def merge_configs(cfg1, cfg2):
-    # Merge cfg2 into cfg1
-    # Overwrite cfg1 if repeated, ignore if value is None.
-    cfg1 = {} if cfg1 is None else cfg1.copy()
-    cfg2 = {} if cfg2 is None else cfg2
-    for k, v in cfg2.items():
-        if v:
-            cfg1[k] = v
-    return cfg1
 
 
 def main():
     args = parse_args()
 
-    cfg = mmcv.Config.fromfile(args.config)
+    cfg = Config.fromfile(args.config)
+
+    cfg.merge_from_dict(args.cfg_options)
 
     # Load output_config from cfg
     output_config = cfg.get('output_config', {})
     # Overwrite output_config from args.out
-    output_config = merge_configs(output_config, dict(out=args.out))
+    output_config = Config._merge_a_into_b(dict(out=args.out), output_config)
 
     # Load eval_config from cfg
     eval_config = cfg.get('eval_config', {})
     # Overwrite eval_config from args.eval
-    eval_config = merge_configs(eval_config, dict(metrics=args.eval))
-    # Add options from args.option
-    eval_config = merge_configs(eval_config, args.options)
+    eval_config = Config._merge_a_into_b(dict(metrics=args.eval), eval_config)
+    # Add options from args.eval_options
+    eval_config = Config._merge_a_into_b(args.eval_options, eval_config)
 
     assert output_config or eval_config, \
         ('Please specify at least one operation (save or eval the '
          'results) with the argument "--out" or "--eval"')
+
+    if output_config.get('out', None):
+        out = output_config['out']
+        # make sure the dirname of the output path exists
+        mmcv.mkdir_or_exist(osp.dirname(out))
+        _, suffix = osp.splitext(out)
+        assert suffix[1:] in file_handlers, \
+            'The format of the output file should be json, pickle or yaml'
 
     # set cudnn benchmark
     if cfg.get('cudnn_benchmark', False):
@@ -97,7 +132,10 @@ def main():
     if cfg.test_cfg is None:
         cfg.test_cfg = dict(average_clips=args.average_clips)
     else:
-        cfg.test_cfg.average_clips = args.average_clips
+        # You can set average_clips during testing, it will override the
+        # original settting
+        if args.average_clips is not None:
+            cfg.test_cfg.average_clips = args.average_clips
 
     # init distributed env first, since logger depends on the dist info.
     if args.launcher == 'none':
@@ -108,12 +146,14 @@ def main():
 
     # build the dataloader
     dataset = build_dataset(cfg.data.test, dict(test_mode=True))
-    data_loader = build_dataloader(
-        dataset,
-        videos_per_gpu=1,
-        workers_per_gpu=cfg.data.workers_per_gpu,
+    dataloader_setting = dict(
+        videos_per_gpu=cfg.data.get('videos_per_gpu', 1),
+        workers_per_gpu=cfg.data.get('workers_per_gpu', 1),
         dist=distributed,
         shuffle=False)
+    dataloader_setting = dict(dataloader_setting,
+                              **cfg.data.get('test_dataloader', {}))
+    data_loader = build_dataloader(dataset, **dataloader_setting)
 
     # build the model and load checkpoint
     model = build_model(cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
@@ -138,7 +178,7 @@ def main():
 
     rank, _ = get_dist_info()
     if rank == 0:
-        if output_config:
+        if output_config.get('out', None):
             out = output_config['out']
             print(f'\nwriting results to {out}')
             dataset.dump_results(outputs, **output_config)

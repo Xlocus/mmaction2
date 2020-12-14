@@ -10,8 +10,8 @@ from mmaction.apis import inference_recognizer, init_recognizer
 def parse_args():
     parser = argparse.ArgumentParser(description='MMAction2 demo')
     parser.add_argument('config', help='test config file path')
-    parser.add_argument('checkpoint', help='checkpoint file')
-    parser.add_argument('video', help='video file or rawframes directory')
+    parser.add_argument('checkpoint', help='checkpoint file/url')
+    parser.add_argument('video', help='video file/url or rawframes directory')
     parser.add_argument('label', help='label file')
     parser.add_argument(
         '--use-frames',
@@ -86,9 +86,12 @@ def get_output(video_path,
         use_frames: Determine Whether to use rawframes as input. Default:False.
     """
 
+    if video_path.startswith(('http://', 'https://')):
+        raise NotImplementedError
+
     try:
-        from moviepy.editor import (ImageSequenceClip, TextClip, VideoFileClip,
-                                    CompositeVideoClip)
+        from moviepy.editor import (CompositeVideoClip, ImageSequenceClip,
+                                    TextClip, VideoFileClip)
     except ImportError:
         raise ImportError('Please install moviepy to enable output file.')
 
@@ -125,7 +128,7 @@ def main():
     args = parse_args()
     # assign the desired device.
     device = torch.device(args.device)
-    # build the recognizer from a config file and checkpoint file
+    # build the recognizer from a config file and checkpoint file/url
     model = init_recognizer(
         args.config,
         args.checkpoint,

@@ -104,22 +104,52 @@ def top_k_accuracy(scores, labels, topk=(1, )):
     return res
 
 
+def mmit_mean_average_precision(scores, labels):
+    """Mean average precision for multi-label recognition. Used for reporting
+    MMIT style mAP on Multi-Moments in Times. The difference is that this
+    method calculates average-precision for each sample and averages them among
+    samples.
+
+    Args:
+        scores (list[np.ndarray]): Prediction scores of different classes for
+            each sample.
+        labels (list[np.ndarray]): Ground truth many-hot vector for each
+            sample.
+
+    Returns:
+        np.float: The MMIT style mean average precision.
+    """
+    results = []
+    for score, label in zip(scores, labels):
+        precision, recall, _ = binary_precision_recall_curve(score, label)
+        ap = -np.sum(np.diff(recall) * np.array(precision)[:-1])
+        results.append(ap)
+    return np.mean(results)
+
+
 def mean_average_precision(scores, labels):
     """Mean average precision for multi-label recognition.
 
     Args:
-        scores (list[np.ndarray]): Prediction scores for each class.
-        labels (list[np.ndarray]): Ground truth many-hot vector.
+        scores (list[np.ndarray]): Prediction scores of different classes for
+            each sample.
+        labels (list[np.ndarray]): Ground truth many-hot vector for each
+            sample.
 
     Returns:
         np.float: The mean average precision.
     """
     results = []
-    for i in range(len(scores)):
-        precision, recall, _ = binary_precision_recall_curve(
-            scores[i], labels[i])
+    scores = np.stack(scores).T
+    labels = np.stack(labels).T
+
+    for score, label in zip(scores, labels):
+        precision, recall, _ = binary_precision_recall_curve(score, label)
         ap = -np.sum(np.diff(recall) * np.array(precision)[:-1])
         results.append(ap)
+    results = [x for x in results if not np.isnan(x)]
+    if results == []:
+        return np.nan
     return np.mean(results)
 
 
@@ -167,23 +197,38 @@ def binary_precision_recall_curve(y_score, y_true):
     return np.r_[precision[sl], 1], np.r_[recall[sl], 0], thresholds[sl]
 
 
-def pairwise_temporal_iou(candidate_segments, target_segments):
+def pairwise_temporal_iou(candidate_segments,
+                          target_segments,
+                          calculate_overlap_self=False):
     """Compute intersection over union between segments.
 
     Args:
-        candidate_segments (np.ndarray): 2-dim array in format
-            [m x 2:=[init, end]].
+        candidate_segments (np.ndarray): 1-dim/2-dim array in format
+            ``[init, end]/[m x 2:=[init, end]]``.
         target_segments (np.ndarray): 2-dim array in format
-            [n x 2:=[init, end]].
+            ``[n x 2:=[init, end]]``.
+        calculate_overlap_self (bool): Whether to calculate overlap_self
+            (union / candidate_length) or not. Default: False.
 
     Returns:
-        temporal_iou (np.ndarray): 2-dim array [n x m] with IoU ratio.
+        t_iou (np.ndarray): 1-dim array [n] /
+            2-dim array [n x m] with IoU ratio.
+        t_overlap_self (np.ndarray, optional): 1-dim array [n] /
+            2-dim array [n x m] with overlap_self, returns when
+            calculate_overlap_self is True.
     """
-    if target_segments.ndim != 2 or candidate_segments.ndim != 2:
+    candidate_segments_ndim = candidate_segments.ndim
+    if target_segments.ndim != 2 or candidate_segments_ndim not in [1, 2]:
         raise ValueError('Dimension of arguments is incorrect')
 
+    if candidate_segments_ndim == 1:
+        candidate_segments = candidate_segments[np.newaxis, :]
+
     n, m = target_segments.shape[0], candidate_segments.shape[0]
-    temporal_iou = np.empty((n, m))
+    t_iou = np.empty((n, m), dtype=np.float32)
+    if calculate_overlap_self:
+        t_overlap_self = np.empty((n, m), dtype=np.float32)
+
     for i in range(m):
         candidate_segment = candidate_segments[i, :]
         tt1 = np.maximum(candidate_segment[0], target_segments[:, 0])
@@ -196,10 +241,20 @@ def pairwise_temporal_iou(candidate_segments, target_segments):
                           segments_intersection)
         # Compute overlap as the ratio of the intersection
         # over union of two segments.
-        temporal_iou[:, i] = (
-            segments_intersection.astype(float) / segments_union)
+        t_iou[:, i] = (segments_intersection.astype(float) / segments_union)
+        if calculate_overlap_self:
+            candidate_length = candidate_segment[1] - candidate_segment[0]
+            t_overlap_self[:, i] = (
+                segments_intersection.astype(float) / candidate_length)
 
-    return temporal_iou
+    if candidate_segments_ndim == 1:
+        t_iou = np.squeeze(t_iou, axis=1)
+    if calculate_overlap_self:
+        if candidate_segments_ndim == 1:
+            t_overlap_self = np.squeeze(t_overlap_self, axis=1)
+        return t_iou, t_overlap_self
+
+    return t_iou
 
 
 def average_recall_at_avg_proposals(ground_truth,
@@ -219,7 +274,7 @@ def average_recall_at_avg_proposals(ground_truth,
         max_avg_proposals (int | None): Max number of proposals for one video.
             Default: None.
         temporal_iou_thresholds (np.ndarray): 1D array with temporal_iou
-            thresholds. Default: np.linspace(0.5, 0.95, 10).
+            thresholds. Default: ``np.linspace(0.5, 0.95, 10)``.
 
     Returns:
         tuple([np.ndarray, np.ndarray, np.ndarray, float]):
@@ -230,7 +285,7 @@ def average_recall_at_avg_proposals(ground_truth,
             over a list of temporal_iou threshold (1D array). This is
             equivalent to ``recall.mean(axis=0)``. The ``proposals_per_video``
             is the average number of proposals per video. The auc is the area
-            under AR@AN curve.
+            under ``AR@AN`` curve.
     """
 
     total_num_videos = len(ground_truth)
@@ -275,9 +330,9 @@ def average_recall_at_avg_proposals(ground_truth,
                                                     num_retrieved_proposals, :]
 
         # Compute temporal_iou scores.
-        temporal_iou = pairwise_temporal_iou(this_video_proposals,
-                                             this_video_ground_truth)
-        score_list.append(temporal_iou)
+        t_iou = pairwise_temporal_iou(this_video_proposals,
+                                      this_video_ground_truth)
+        score_list.append(t_iou)
 
     # Given that the length of the videos is really varied, we
     # compute the number of proposals in terms of a ratio of the total
@@ -339,7 +394,7 @@ def get_weighted_score(score_list, coeff_list):
             n(number of predictions) X num_samples X num_classes
         coeff_list (list[float]): List of coefficients, with shape n.
 
-    Return:
+    Returns:
         list[np.ndarray]: List of weighted scores.
     """
     assert len(score_list) == len(coeff_list)
@@ -351,3 +406,114 @@ def get_weighted_score(score_list, coeff_list):
     coeff = np.array(coeff_list)  # (num_coeff, )
     weighted_scores = list(np.dot(scores.T, coeff).T)
     return weighted_scores
+
+
+def softmax(x, dim=1):
+    """Compute softmax values for each sets of scores in x."""
+    e_x = np.exp(x - np.max(x, axis=dim, keepdims=True))
+    return e_x / e_x.sum(axis=dim, keepdims=True)
+
+
+def interpolated_precision_recall(precision, recall):
+    """Interpolated AP - VOCdevkit from VOC 2011.
+
+    Args:
+        precision (np.ndarray): The precision of different thresholds.
+        recall (np.ndarray): The recall of different thresholds.
+
+    Returns：
+        float: Average precision score.
+    """
+    mprecision = np.hstack([[0], precision, [0]])
+    mrecall = np.hstack([[0], recall, [1]])
+    for i in range(len(mprecision) - 1)[::-1]:
+        mprecision[i] = max(mprecision[i], mprecision[i + 1])
+    idx = np.where(mrecall[1::] != mrecall[0:-1])[0] + 1
+    ap = np.sum((mrecall[idx] - mrecall[idx - 1]) * mprecision[idx])
+    return ap
+
+
+def average_precision_at_temporal_iou(ground_truth,
+                                      prediction,
+                                      temporal_iou_thresholds=(np.linspace(
+                                          0.5, 0.95, 10))):
+    """Compute average precision (in detection task) between ground truth and
+    predicted data frames. If multiple predictions match the same predicted
+    segment, only the one with highest score is matched as true positive. This
+    code is greatly inspired by Pascal VOC devkit.
+
+    Args:
+        ground_truth (dict): Dict containing the ground truth instances.
+            Key: 'video_id'
+            Value (np.ndarray): 1D array of 't-start' and 't-end'.
+        prediction (np.ndarray): 2D array containing the information of
+            proposal instances, including 'video_id', 'class_id', 't-start',
+            't-end' and 'score'.
+        temporal_iou_thresholds (np.ndarray): 1D array with temporal_iou
+            thresholds. Default: ``np.linspace(0.5, 0.95, 10)``.
+
+    Returns:
+        np.ndarray: 1D array of average precision score.
+    """
+    ap = np.zeros(len(temporal_iou_thresholds), dtype=np.float32)
+    if len(prediction) < 1:
+        return ap
+
+    num_gts = 0.
+    lock_gt = dict()
+    for key in ground_truth:
+        lock_gt[key] = np.ones(
+            (len(temporal_iou_thresholds), len(ground_truth[key]))) * -1
+        num_gts += len(ground_truth[key])
+
+    # Sort predictions by decreasing score order.
+    prediction = np.array(prediction)
+    scores = prediction[:, 4].astype(float)
+    sort_idx = np.argsort(scores)[::-1]
+    prediction = prediction[sort_idx]
+
+    # Initialize true positive and false positive vectors.
+    tp = np.zeros((len(temporal_iou_thresholds), len(prediction)),
+                  dtype=np.int32)
+    fp = np.zeros((len(temporal_iou_thresholds), len(prediction)),
+                  dtype=np.int32)
+
+    # Assigning true positive to truly grount truth instances.
+    for idx, this_pred in enumerate(prediction):
+
+        # Check if there is at least one ground truth in the video.
+        if this_pred[0] in ground_truth:
+            this_gt = np.array(ground_truth[this_pred[0]], dtype=float)
+        else:
+            fp[:, idx] = 1
+            continue
+
+        t_iou = pairwise_temporal_iou(this_pred[2:4].astype(float), this_gt)
+        # We would like to retrieve the predictions with highest t_iou score.
+        t_iou_sorted_idx = t_iou.argsort()[::-1]
+        for t_idx, t_iou_threshold in enumerate(temporal_iou_thresholds):
+            for jdx in t_iou_sorted_idx:
+                if t_iou[jdx] < t_iou_threshold:
+                    fp[t_idx, idx] = 1
+                    break
+                if lock_gt[this_pred[0]][t_idx, jdx] >= 0:
+                    continue
+                # Assign as true positive after the filters above.
+                tp[t_idx, idx] = 1
+                lock_gt[this_pred[0]][t_idx, jdx] = idx
+                break
+
+            if fp[t_idx, idx] == 0 and tp[t_idx, idx] == 0:
+                fp[t_idx, idx] = 1
+
+    tp_cumsum = np.cumsum(tp, axis=1).astype(np.float32)
+    fp_cumsum = np.cumsum(fp, axis=1).astype(np.float32)
+    recall_cumsum = tp_cumsum / num_gts
+
+    precision_cumsum = tp_cumsum / (tp_cumsum + fp_cumsum)
+
+    for t_idx in range(len(temporal_iou_thresholds)):
+        ap[t_idx] = interpolated_precision_recall(precision_cumsum[t_idx, :],
+                                                  recall_cumsum[t_idx, :])
+
+    return ap

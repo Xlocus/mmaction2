@@ -45,7 +45,8 @@ class TEM(BaseLocalizer):
                  conv1_ratio=1,
                  conv2_ratio=1,
                  conv3_ratio=0.01):
-        super().__init__()
+        super(BaseLocalizer, self).__init__()
+
         self.temporal_dim = temporal_dim
         self.boundary_ratio = boundary_ratio
         self.feat_dim = tem_feat_dim
@@ -147,7 +148,8 @@ class TEM(BaseLocalizer):
         video_meta_list = [dict(x) for x in video_meta]
 
         video_results = []
-        for batch_idx in range(len(batch_action)):
+
+        for batch_idx, _ in enumerate(batch_action):
             video_name = video_meta_list[batch_idx]['video_name']
             video_action = batch_action[batch_idx]
             video_start = batch_start[batch_idx]
@@ -219,8 +221,8 @@ class TEM(BaseLocalizer):
             label_end = label_end.to(device)
             return self.forward_train(raw_feature, label_action, label_start,
                                       label_end)
-        else:
-            return self.forward_test(raw_feature, video_meta)
+
+        return self.forward_test(raw_feature, video_meta)
 
 
 @LOCALIZERS.register_module()
@@ -245,6 +247,8 @@ class PEM(BaseLocalizer):
         soft_nms_low_threshold (float): Soft NMS low threshold.
         soft_nms_high_threshold (float): Soft NMS high threshold.
         post_process_top_k (int): Top k proposals in post process.
+        feature_extraction_interval (int):
+            Interval used in feature extraction. Default: 16.
         fc1_ratio (float): Ratio for fc1 layer output. Default: 0.1.
         fc2_ratio (float): Ratio for fc2 layer output. Default: 0.1.
         output_dim (int): Output dimension. Default: 1.
@@ -261,10 +265,11 @@ class PEM(BaseLocalizer):
                  soft_nms_low_threshold,
                  soft_nms_high_threshold,
                  post_process_top_k,
+                 feature_extraction_interval=16,
                  fc1_ratio=0.1,
                  fc2_ratio=0.1,
                  output_dim=1):
-        super().__init__()
+        super(BaseLocalizer, self).__init__()
 
         self.feat_dim = pem_feat_dim
         self.hidden_dim = pem_hidden_dim
@@ -276,6 +281,7 @@ class PEM(BaseLocalizer):
         self.soft_nms_low_threshold = soft_nms_low_threshold
         self.soft_nms_high_threshold = soft_nms_high_threshold
         self.post_process_top_k = post_process_top_k
+        self.feature_extraction_interval = feature_extraction_interval
         self.fc1_ratio = fc1_ratio
         self.fc2_ratio = fc2_ratio
         self.output_dim = output_dim
@@ -296,7 +302,7 @@ class PEM(BaseLocalizer):
         Returns:
             torch.Tensor: The output of the module.
         """
-        x = torch.cat([data for data in x])
+        x = torch.cat(list(x))
         x = F.relu(self.fc1_ratio * self.fc1(x))
         x = torch.sigmoid(self.fc2_ratio * self.fc2(x))
         return x
@@ -304,8 +310,7 @@ class PEM(BaseLocalizer):
     def forward_train(self, bsp_feature, reference_temporal_iou):
         """Define the computation performed at every call when training."""
         pem_output = self._forward(bsp_feature)
-        reference_temporal_iou = torch.cat(
-            [data for data in reference_temporal_iou])
+        reference_temporal_iou = torch.cat(list(reference_temporal_iou))
         device = pem_output.device
         reference_temporal_iou = reference_temporal_iou.to(device)
 
@@ -364,7 +369,8 @@ class PEM(BaseLocalizer):
                                         self.soft_nms_alpha,
                                         self.soft_nms_low_threshold,
                                         self.soft_nms_high_threshold,
-                                        self.post_process_top_k)
+                                        self.post_process_top_k,
+                                        self.feature_extraction_interval)
         output = [
             dict(
                 video_name=video_info['video_name'],
@@ -384,6 +390,6 @@ class PEM(BaseLocalizer):
         """Define the computation performed at every call."""
         if return_loss:
             return self.forward_train(bsp_feature, reference_temporal_iou)
-        else:
-            return self.forward_test(bsp_feature, tmin, tmax, tmin_score,
-                                     tmax_score, video_meta)
+
+        return self.forward_test(bsp_feature, tmin, tmax, tmin_score,
+                                 tmax_score, video_meta)

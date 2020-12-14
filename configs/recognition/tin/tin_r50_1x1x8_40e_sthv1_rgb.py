@@ -100,7 +100,7 @@ optimizer = dict(
     type='SGD',
     constructor='TSMOptimizerConstructor',
     paramwise_cfg=dict(fc_lr5=True),
-    lr=0.02,
+    lr=0.02,  # this lr is used for 8 gpus
     momentum=0.9,
     weight_decay=0.0005)
 optimizer_config = dict(grad_clip=dict(max_norm=20, norm_type=2))
@@ -115,7 +115,7 @@ lr_config = dict(
 total_epochs = 40
 checkpoint_config = dict(interval=1)
 evaluation = dict(
-    interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'], topk=(1, 5))
+    interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'])
 log_config = dict(
     interval=20,
     hooks=[

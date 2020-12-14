@@ -24,7 +24,7 @@ class ResNet3dPathway(ResNet3d):
             Default: 8.
         fusion_kernel (int): The kernel size of lateral fusion.
             Default: 5.
-        **kwargs (keyword arguments): Keywork arguments for ResNet3d.
+        **kwargs (keyword arguments): Keywords arguments for ResNet3d.
     """
 
     def __init__(self,
@@ -122,9 +122,9 @@ class ResNet3dPathway(ResNet3d):
                 Default: 0.
             non_local_cfg (dict): Config for non-local module.
                 Default: ``dict()``.
-            conv_cfg (dict): Config for conv layers. Default: None.
-            norm_cfg (dict): Config for norm layers. Default: None.
-            act_cfg (dict): Config for activate layers. Default: None.
+            conv_cfg (dict | None): Config for conv layers. Default: None.
+            norm_cfg (dict | None): Config for norm layers. Default: None.
+            act_cfg (dict | None): Config for activate layers. Default: None.
             with_cp (bool): Use checkpoint or not. Using checkpoint will save
                 some memory while slowing down the training speed.
                 Default: False.
@@ -300,7 +300,7 @@ class ResNet3dPathway(ResNet3d):
             for param in m.parameters():
                 param.requires_grad = False
 
-            if (i != len(self.res_layers) and self.lateral):
+            if i != len(self.res_layers) and self.lateral:
                 # No fusion needed in the final stage
                 lateral_name = self.lateral_connections[i - 1]
                 conv_lateral = getattr(self, lateral_name)
@@ -343,8 +343,8 @@ def build_pathway(cfg, *args, **kwargs):
     pathway_type = cfg_.pop('type')
     if pathway_type not in pathway_cfg:
         raise KeyError(f'Unrecognized pathway type {pathway_type}')
-    else:
-        pathway_cls = pathway_cfg[pathway_type]
+
+    pathway_cls = pathway_cfg[pathway_type]
     pathway = pathway_cls(*args, **kwargs, **cfg_)
 
     return pathway
@@ -358,7 +358,6 @@ class ResNet3dSlowFast(nn.Module):
     <https://arxiv.org/abs/1812.03982>`_
 
     Args:
-        depth (int): Depth of resnet, from {18, 34, 50, 101, 152}.
         pretrained (str): The file path to a pretrained model.
         resample_rate (int): A large temporal stride ``resample_rate``
             on input frames, corresponding to the :math:`\\tau` in the paper.
@@ -454,14 +453,21 @@ class ResNet3dSlowFast(nn.Module):
             x (torch.Tensor): The input data.
 
         Returns:
-            tuple[torch.Tensor]: The feature of the input
-            samples extracted by the backbone.
+            tuple[torch.Tensor]: The feature of the input samples extracted
+                by the backbone.
         """
-        x_slow = x[:, :, ::self.resample_rate, :, :]
+        x_slow = nn.functional.interpolate(
+            x,
+            mode='nearest',
+            scale_factor=(1.0 / self.resample_rate, 1.0, 1.0))
         x_slow = self.slow_path.conv1(x_slow)
         x_slow = self.slow_path.maxpool(x_slow)
 
-        x_fast = x[:, :, ::self.resample_rate // self.speed_ratio, :, :]
+        x_fast = nn.functional.interpolate(
+            x,
+            mode='nearest',
+            scale_factor=(1.0 / (self.resample_rate // self.speed_ratio), 1.0,
+                          1.0))
         x_fast = self.fast_path.conv1(x_fast)
         x_fast = self.fast_path.maxpool(x_fast)
 

@@ -9,7 +9,7 @@ model = dict(
         shift_div=8),
     cls_head=dict(
         type='TSMHead',
-        num_classes=339,
+        num_classes=174,
         in_channels=2048,
         spatial_type='avg',
         consensus=dict(type='AvgConsensus', dim=1),
@@ -18,7 +18,7 @@ model = dict(
         is_shift=True))
 # model training and testing settings
 train_cfg = None
-test_cfg = dict(average_clips=None)
+test_cfg = dict(average_clips='prob')
 # dataset settings
 dataset_type = 'RawframeDataset'
 data_root = 'data/sthv2/rawframes'
@@ -98,7 +98,7 @@ optimizer = dict(
     type='SGD',
     constructor='TSMOptimizerConstructor',
     paramwise_cfg=dict(fc_lr5=True),
-    lr=0.02,  # this lr is used for 8 gpus
+    lr=0.01,  # this lr is used for 8 gpus
     momentum=0.9,
     weight_decay=0.0005)
 optimizer_config = dict(grad_clip=dict(max_norm=20, norm_type=2))
@@ -107,7 +107,7 @@ lr_config = dict(policy='step', step=[20, 40])
 total_epochs = 50
 checkpoint_config = dict(interval=1)
 evaluation = dict(
-    interval=2, metrics=['top_k_accuracy', 'mean_class_accuracy'], topk=(1, 5))
+    interval=2, metrics=['top_k_accuracy', 'mean_class_accuracy'])
 log_config = dict(
     interval=20,
     hooks=[

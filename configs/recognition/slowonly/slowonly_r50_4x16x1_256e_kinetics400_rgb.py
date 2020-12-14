@@ -17,7 +17,7 @@ model = dict(
         spatial_type='avg',
         dropout_ratio=0.5))
 train_cfg = None
-test_cfg = dict(average_clips=None)
+test_cfg = dict(average_clips='prob')
 dataset_type = 'RawframeDataset'
 data_root = 'data/kinetics400/rawframes_train'
 data_root_val = 'data/kinetics400/rawframes_val'
@@ -99,7 +99,7 @@ total_epochs = 256
 checkpoint_config = dict(interval=4)
 workflow = [('train', 1)]
 evaluation = dict(
-    interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'], topk=(1, 5))
+    interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'])
 log_config = dict(
     interval=20,
     hooks=[

@@ -5,7 +5,7 @@ model = dict(
         type='ResNet3dCSN',
         pretrained2d=False,
         pretrained=  # noqa: E251
-        'https://openmmlab.oss-accelerate.aliyuncs.com/mmaction/recognition/csn/ircsn_from_scratch_r152_ig65m_20200807-771c4135.pth',  # noqa: E501
+        'https://download.openmmlab.com/mmaction/recognition/csn/ircsn_from_scratch_r152_ig65m_20200807-771c4135.pth',  # noqa: E501
         depth=152,
         with_pool2=False,
         bottleneck_mode='ir',
@@ -20,7 +20,7 @@ model = dict(
         init_std=0.01))
 # model training and testing settings
 train_cfg = None
-test_cfg = dict(average_clips=None)
+test_cfg = dict(average_clips='prob')
 # dataset settings
 dataset_type = 'RawframeDataset'
 data_root = 'data/kinetics400/rawframes_train'
@@ -94,7 +94,8 @@ data = dict(
         pipeline=test_pipeline))
 # optimizer
 optimizer = dict(
-    type='SGD', lr=0.0005, momentum=0.9, weight_decay=0.0001)  # 0.0005 for 32g
+    type='SGD', lr=0.000125, momentum=0.9,
+    weight_decay=0.0001)  # this lr is used for 8 gpus
 optimizer_config = dict(grad_clip=dict(max_norm=40, norm_type=2))
 # learning policy
 lr_config = dict(
@@ -107,7 +108,7 @@ lr_config = dict(
 total_epochs = 58
 checkpoint_config = dict(interval=2)
 evaluation = dict(
-    interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'], topk=(1, 5))
+    interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'])
 log_config = dict(
     interval=20,
     hooks=[dict(type='TextLoggerHook'),

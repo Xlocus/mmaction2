@@ -8,7 +8,7 @@ model = dict(
         norm_eval=False),
     cls_head=dict(
         type='TSNHead',
-        num_classes=339,
+        num_classes=174,
         in_channels=2048,
         spatial_type='avg',
         consensus=dict(type='AvgConsensus', dim=1),
@@ -37,7 +37,7 @@ train_pipeline = [
         random_crop=False,
         max_wh_scale_gap=1),
     dict(type='Resize', scale=(224, 224), keep_ratio=False),
-    dict(type='Flip', flip_ratio=0.5),
+    dict(type='Flip', flip_ratio=0),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='FormatShape', input_format='NCHW'),
     dict(type='Collect', keys=['imgs', 'label'], meta_keys=[]),
@@ -91,7 +91,7 @@ lr_config = dict(policy='step', step=[20, 40])
 total_epochs = 50
 checkpoint_config = dict(interval=1)
 evaluation = dict(
-    interval=2, metrics=['top_k_accuracy', 'mean_class_accuracy'], topk=(1, 5))
+    interval=2, metrics=['top_k_accuracy', 'mean_class_accuracy'])
 log_config = dict(
     interval=20,
     hooks=[

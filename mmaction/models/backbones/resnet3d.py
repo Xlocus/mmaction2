@@ -24,9 +24,6 @@ class BasicBlock3d(nn.Module):
             stride-two layer is the 3x3 conv layer, otherwise the stride-two
             layer is the first 1x1 conv layer. Default: 'pytorch'.
         inflate (bool): Whether to inflate kernel. Default: True.
-        inflate_style (str): ``3x1x1`` or ``1x1x1``. which determines the
-            kernel sizes and padding strides for conv1 and conv2 in each block.
-            Default: '3x1x1'.
         non_local (bool): Determine whether to apply non-local module in this
             block. Default: False.
         non_local_cfg (dict): Config for non-local module. Default: ``dict()``.
@@ -50,16 +47,17 @@ class BasicBlock3d(nn.Module):
                  downsample=None,
                  style='pytorch',
                  inflate=True,
-                 inflate_style='3x1x1',
                  non_local=False,
                  non_local_cfg=dict(),
                  conv_cfg=dict(type='Conv3d'),
                  norm_cfg=dict(type='BN3d'),
                  act_cfg=dict(type='ReLU'),
-                 with_cp=False):
+                 with_cp=False,
+                 **kwargs):
         super().__init__()
         assert style in ['pytorch', 'caffe']
-        assert inflate_style in ['3x1x1', '3x3x3']
+        # make sure that only ``inflate_style`` is passed into kwargs
+        assert set(kwargs.keys()).issubset(['inflate_style'])
 
         self.inplanes = inplanes
         self.planes = planes
@@ -68,7 +66,6 @@ class BasicBlock3d(nn.Module):
         self.dilation = dilation
         self.style = style
         self.inflate = inflate
-        self.inflate_style = inflate_style
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
         self.act_cfg = act_cfg
@@ -166,7 +163,7 @@ class Bottleneck3d(nn.Module):
             stride-two layer is the 3x3 conv layer, otherwise the stride-two
             layer is the first 1x1 conv layer. Default: 'pytorch'.
         inflate (bool): Whether to inflate kernel. Default: True.
-        inflate_style (str): ``3x1x1`` or ``1x1x1``. which determines the
+        inflate_style (str): ``3x1x1`` or ``3x3x3``. which determines the
             kernel sizes and padding strides for conv1 and conv2 in each block.
             Default: '3x1x1'.
         non_local (bool): Determine whether to apply non-local module in this
@@ -328,6 +325,7 @@ class ResNet3d(nn.Module):
             Default: True.
         in_channels (int): Channel num of input features. Default: 3.
         base_channels (int): Channel num of stem output features. Default: 64.
+        out_indices (Sequence[int]): Indices of output feature. Default: (3, ).
         num_stages (int): Resnet stages. Default: 4.
         spatial_strides (Sequence[int]):
             Spatial strides of residual blocks of each stage.
@@ -362,7 +360,7 @@ class ResNet3d(nn.Module):
         act_cfg (dict): Config dict for activation layer.
             Default: ``dict(type='ReLU', inplace=True)``.
         norm_eval (bool): Whether to set BN layers to eval mode, namely, freeze
-            running stats (mean and var). Default: True.
+            running stats (mean and var). Default: False.
         with_cp (bool): Use checkpoint or not. Using checkpoint will save some
             memory while slowing down the training speed. Default: False.
         non_local (Sequence[int]): Determine whether to apply non-local module
@@ -389,6 +387,7 @@ class ResNet3d(nn.Module):
                  in_channels=3,
                  num_stages=4,
                  base_channels=64,
+                 out_indices=(3, ),
                  spatial_strides=(1, 2, 2, 2),
                  temporal_strides=(1, 1, 1, 1),
                  dilations=(1, 1, 1, 1),
@@ -403,7 +402,7 @@ class ResNet3d(nn.Module):
                  conv_cfg=dict(type='Conv3d'),
                  norm_cfg=dict(type='BN3d', requires_grad=True),
                  act_cfg=dict(type='ReLU', inplace=True),
-                 norm_eval=True,
+                 norm_eval=False,
                  with_cp=False,
                  non_local=(0, 0, 0, 0),
                  non_local_cfg=dict(),
@@ -418,7 +417,9 @@ class ResNet3d(nn.Module):
         self.in_channels = in_channels
         self.base_channels = base_channels
         self.num_stages = num_stages
-        assert num_stages >= 1 and num_stages <= 4
+        assert 1 <= num_stages <= 4
+        self.out_indices = out_indices
+        assert max(out_indices) < num_stages
         self.spatial_strides = spatial_strides
         self.temporal_strides = temporal_strides
         self.dilations = dilations
@@ -480,8 +481,8 @@ class ResNet3d(nn.Module):
         self.feat_dim = self.block.expansion * self.base_channels * 2**(
             len(self.stage_blocks) - 1)
 
-    def make_res_layer(self,
-                       block,
+    @staticmethod
+    def make_res_layer(block,
                        inplanes,
                        planes,
                        blocks,
@@ -594,7 +595,8 @@ class ResNet3d(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def _inflate_conv_params(self, conv3d, state_dict_2d, module_name_2d,
+    @staticmethod
+    def _inflate_conv_params(conv3d, state_dict_2d, module_name_2d,
                              inflated_param_names):
         """Inflate a conv module from 2d to 3d.
 
@@ -621,7 +623,8 @@ class ResNet3d(nn.Module):
             conv3d.bias.data.copy_(state_dict_2d[bias_2d_name])
             inflated_param_names.append(bias_2d_name)
 
-    def _inflate_bn_params(self, bn3d, state_dict_2d, module_name_2d,
+    @staticmethod
+    def _inflate_bn_params(bn3d, state_dict_2d, module_name_2d,
                            inflated_param_names):
         """Inflate a norm module from 2d to 3d.
 
@@ -791,12 +794,18 @@ class ResNet3d(nn.Module):
         """
         x = self.conv1(x)
         x = self.maxpool(x)
+        outs = []
         for i, layer_name in enumerate(self.res_layers):
             res_layer = getattr(self, layer_name)
             x = res_layer(x)
             if i == 0 and self.with_pool2:
                 x = self.pool2(x)
-        return x
+            if i in self.out_indices:
+                outs.append(x)
+        if len(outs) == 1:
+            return outs[0]
+
+        return tuple(outs)
 
     def train(self, mode=True):
         """Set the optimization status when training."""

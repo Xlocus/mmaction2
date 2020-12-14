@@ -20,8 +20,8 @@ def init_recognizer(config,
     Args:
         config (str | :obj:`mmcv.Config`): Config file path or the config
             object.
-        checkpoint (str, optional): Checkpoint path. If left as None, the model
-            will not load any weights. Default: None.
+        checkpoint (str | None, optional): Checkpoint path/url. If set to None,
+            the model will not load any weights. Default: None.
         device (str | :obj:`torch.device`): The desired device of returned
             tensor. Default: 'cuda:0'.
         use_frames (bool): Whether to use rawframes as input. Default:False.
@@ -57,22 +57,22 @@ def inference_recognizer(model, video_path, label_path, use_frames=False):
 
     Args:
         model (nn.Module): The loaded recognizer.
-        video_path (str): The video file path or the rawframes directory path.
-            If ``use_frames`` is set to True, it should be rawframes directory
-            path. Otherwise, it should be video file path.
+        video_path (str): The video file path/url or the rawframes directory
+            path. If ``use_frames`` is set to True, it should be rawframes
+            directory path. Otherwise, it should be video file path.
         label_path (str): The label file path.
         use_frames (bool): Whether to use rawframes as input. Default:False.
 
     Returns:
         dict[tuple(str, float)]: Top-5 recognition result dict.
     """
-    if not osp.exists(video_path):
+    if not (osp.exists(video_path) or video_path.startswith('http')):
         raise RuntimeError(f"'{video_path}' is missing")
 
     if osp.isfile(video_path) and use_frames:
         raise RuntimeError(
             f"'{video_path}' is a video file, not a rawframe directory")
-    elif osp.isdir(video_path) and not use_frames:
+    if osp.isdir(video_path) and not use_frames:
         raise RuntimeError(
             f"'{video_path}' is a rawframe directory, not a video file")
 

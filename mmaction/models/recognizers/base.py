@@ -22,17 +22,32 @@ class BaseRecognizer(nn.Module, metaclass=ABCMeta):
     Args:
         backbone (dict): Backbone modules to extract feature.
         cls_head (dict): Classification head to process feature.
-        train_cfg (dict): Config for training. Default: None.
-        test_cfg (dict): Config for testing. Default: None.
+        train_cfg (dict | None): Config for training. Default: None.
+        test_cfg (dict | None): Config for testing. Default: None.
     """
 
-    def __init__(self, backbone, cls_head, train_cfg=None, test_cfg=None):
+    def __init__(self,
+                 backbone,
+                 cls_head,
+                 neck=None,
+                 train_cfg=None,
+                 test_cfg=None):
         super().__init__()
         self.backbone = builder.build_backbone(backbone)
+        if neck is not None:
+            self.neck = builder.build_neck(neck)
         self.cls_head = builder.build_head(cls_head)
 
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
+
+        # aux_info is the list of tensor names beyond 'imgs' and 'label' which
+        # will be used in train_step and val_step, data_batch should contain
+        # these tensors
+        self.aux_info = []
+        if train_cfg is not None and 'aux_info' in train_cfg:
+            self.aux_info = train_cfg['aux_info']
+
         self.init_weights()
 
         self.fp16_enabled = False
@@ -41,6 +56,8 @@ class BaseRecognizer(nn.Module, metaclass=ABCMeta):
         """Initialize the model network weights."""
         self.backbone.init_weights()
         self.cls_head.init_weights()
+        if hasattr(self, 'neck'):
+            self.neck.init_weights()
 
     @auto_fp16()
     def extract_feat(self, imgs):
@@ -55,17 +72,18 @@ class BaseRecognizer(nn.Module, metaclass=ABCMeta):
         x = self.backbone(imgs)
         return x
 
-    def average_clip(self, cls_score):
+    def average_clip(self, cls_score, num_segs=1):
         """Averaging class score over multiple clips.
 
         Using different averaging types ('score' or 'prob' or None,
         which defined in test_cfg) to computed the final averaged
-        class score.
+        class score. Only called in test mode.
 
         Args:
             cls_score (torch.Tensor): Class score to be averaged.
+            num_segs (int): Number of clips for each input sample.
 
-        return:
+        Returns:
             torch.Tensor: Averaged class score.
         """
         if 'average_clips' not in self.test_cfg.keys():
@@ -77,22 +95,32 @@ class BaseRecognizer(nn.Module, metaclass=ABCMeta):
                              f'Currently supported ones are '
                              f'["score", "prob", None]')
 
+        if average_clips is None:
+            return cls_score
+
+        batch_size = cls_score.shape[0]
+        cls_score = cls_score.view(batch_size // num_segs, num_segs, -1)
+
         if average_clips == 'prob':
-            cls_score = F.softmax(cls_score, dim=1).mean(dim=0, keepdim=True)
+            cls_score = F.softmax(cls_score, dim=2).mean(dim=1)
         elif average_clips == 'score':
-            cls_score = cls_score.mean(dim=0, keepdim=True)
+            cls_score = cls_score.mean(dim=1)
+
         return cls_score
 
     @abstractmethod
-    def forward_train(self, imgs, labels):
+    def forward_train(self, imgs, labels, **kwargs):
         """Defines the computation performed at every call when training."""
-        pass
 
     @abstractmethod
     def forward_test(self, imgs):
         """Defines the computation performed at every call when evaluation and
         testing."""
-        pass
+
+    @abstractmethod
+    def forward_gradcam(self, imgs):
+        """Defines the computation performed at every all when using gradcam
+        utils."""
 
     @staticmethod
     def _parse_losses(losses):
@@ -130,14 +158,17 @@ class BaseRecognizer(nn.Module, metaclass=ABCMeta):
 
         return loss, log_vars
 
-    def forward(self, imgs, label=None, return_loss=True):
+    def forward(self, imgs, label=None, return_loss=True, **kwargs):
         """Define the computation performed at every call."""
+        if kwargs.get('gradcam', False):
+            del kwargs['gradcam']
+            return self.forward_gradcam(imgs, **kwargs)
         if return_loss:
             if label is None:
                 raise ValueError('Label should not be None.')
-            return self.forward_train(imgs, label)
-        else:
-            return self.forward_test(imgs)
+            return self.forward_train(imgs, label, **kwargs)
+
+        return self.forward_test(imgs, **kwargs)
 
     def train_step(self, data_batch, optimizer, **kwargs):
         """The iteration step during training.
@@ -168,7 +199,12 @@ class BaseRecognizer(nn.Module, metaclass=ABCMeta):
         imgs = data_batch['imgs']
         label = data_batch['label']
 
-        losses = self(imgs, label)
+        aux_info = {}
+        for item in self.aux_info:
+            assert item in data_batch
+            aux_info[item] = data_batch[item]
+
+        losses = self(imgs, label, return_loss=True, **aux_info)
 
         loss, log_vars = self._parse_losses(losses)
 
@@ -189,7 +225,11 @@ class BaseRecognizer(nn.Module, metaclass=ABCMeta):
         imgs = data_batch['imgs']
         label = data_batch['label']
 
-        losses = self(imgs, label)
+        aux_info = {}
+        for item in self.aux_info:
+            aux_info[item] = data_batch[item]
+
+        losses = self(imgs, label, return_loss=True, **aux_info)
 
         loss, log_vars = self._parse_losses(losses)
 

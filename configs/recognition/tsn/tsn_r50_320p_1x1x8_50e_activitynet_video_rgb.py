@@ -21,8 +21,8 @@ test_cfg = dict(average_clips=None)
 dataset_type = 'RawframeDataset'
 data_root = 'data/ActivityNet/rgb'
 data_root_val = 'data/ActivityNet/rgb'
-ann_file_train = 'data/ActivityNet/anet_train_clip.txt'
-ann_file_val = 'data/ActivityNet/anet_val_clip.txt'
+ann_file_train = 'data/ActivityNet/anet_train_video.txt'
+ann_file_val = 'data/ActivityNet/anet_val_video.txt'
 ann_file_test = 'data/ActivityNet/anet_val_clip.txt'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_bgr=False)
@@ -79,6 +79,7 @@ data = dict(
         data_prefix=data_root,
         pipeline=train_pipeline,
         with_offset=True,
+        start_index=0,
         filename_tmpl='image_{:05d}.jpg'),
     val=dict(
         type=dataset_type,
@@ -86,6 +87,7 @@ data = dict(
         data_prefix=data_root_val,
         pipeline=val_pipeline,
         with_offset=True,
+        start_index=0,
         filename_tmpl='image_{:05d}.jpg'),
     test=dict(
         type=dataset_type,
@@ -93,6 +95,7 @@ data = dict(
         data_prefix=data_root_val,
         pipeline=test_pipeline,
         with_offset=True,
+        start_index=0,
         filename_tmpl='image_{:05d}.jpg'))
 # optimizer
 optimizer = dict(type='SGD', lr=0.001, momentum=0.9, weight_decay=0.0001)
@@ -103,7 +106,7 @@ lr_config = dict(policy='step', step=[20, 40])
 total_epochs = 50
 checkpoint_config = dict(interval=1)
 evaluation = dict(
-    interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'], topk=(1, 5))
+    interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'])
 log_config = dict(
     interval=20,
     hooks=[

@@ -1,10 +1,9 @@
 import copy
 import os.path as osp
 
+import numpy as np
 import torch
-from mmcv.utils import print_log
 
-from ..core import mean_average_precision, mean_class_accuracy, top_k_accuracy
 from .base import BaseDataset
 from .registry import DATASETS
 
@@ -61,7 +60,7 @@ class RawframeDataset(BaseDataset):
     Args:
         ann_file (str): Path to the annotation file.
         pipeline (list[dict | callable]): A sequence of data transforms.
-        data_prefix (str): Path to a directory where videos are held.
+        data_prefix (str | None): Path to a directory where videos are held.
             Default: None.
         test_mode (bool): Store True when building test or validation dataset.
             Default: False.
@@ -71,9 +70,18 @@ class RawframeDataset(BaseDataset):
             ann_file. Default: False.
         multi_class (bool): Determines whether it is a multi-class
             recognition dataset. Default: False.
-        num_classes (int): Number of classes in the dataset. Default: None.
+        num_classes (int | None): Number of classes in the dataset.
+            Default: None.
         modality (str): Modality of data. Support 'RGB', 'Flow'.
-                            Default: 'RGB'.
+            Default: 'RGB'.
+        sample_by_class (bool): Sampling by class, should be set `True` when
+            performing inter-class data balancing. Only compatible with
+            `multi_class == False`. Only applies for training. Default: False.
+        power (float | None): We support sampling data with the probability
+            proportional to the power of its label frequency (freq ^ power)
+            when sampling data. `power == 1` indicates uniformly sampling all
+            data; `power == 0` indicates uniformly sampling all classes.
+            Default: None.
     """
 
     def __init__(self,
@@ -86,11 +94,22 @@ class RawframeDataset(BaseDataset):
                  multi_class=False,
                  num_classes=None,
                  start_index=1,
-                 modality='RGB'):
+                 modality='RGB',
+                 sample_by_class=False,
+                 power=None):
         self.filename_tmpl = filename_tmpl
         self.with_offset = with_offset
-        super().__init__(ann_file, pipeline, data_prefix, test_mode,
-                         multi_class, num_classes, start_index, modality)
+        super().__init__(
+            ann_file,
+            pipeline,
+            data_prefix,
+            test_mode,
+            multi_class,
+            num_classes,
+            start_index,
+            modality,
+            sample_by_class=sample_by_class,
+            power=power)
 
     def load_annotations(self):
         """Load annotation file to get video information."""
@@ -119,12 +138,10 @@ class RawframeDataset(BaseDataset):
                     idx += 1
                 # idx for label[s]
                 label = [int(x) for x in line_split[idx:]]
-                assert len(label), f'missing label in line: {line}'
+                assert label, f'missing label in line: {line}'
                 if self.multi_class:
                     assert self.num_classes is not None
-                    onehot = torch.zeros(self.num_classes)
-                    onehot[label] = 1.0
-                    video_info['label'] = onehot
+                    video_info['label'] = label
                 else:
                     assert len(label) == 1
                     video_info['label'] = label[0]
@@ -134,94 +151,40 @@ class RawframeDataset(BaseDataset):
 
     def prepare_train_frames(self, idx):
         """Prepare the frames for training given the index."""
-        results = copy.deepcopy(self.video_infos[idx])
+        if self.sample_by_class:
+            # Then, the idx is the class index
+            samples = self.video_infos_by_class[idx]
+            results = copy.deepcopy(np.random.choice(samples))
+        else:
+            results = copy.deepcopy(self.video_infos[idx])
         results['filename_tmpl'] = self.filename_tmpl
         results['modality'] = self.modality
         results['start_index'] = self.start_index
+
+        # prepare tensor in getitem
+        if self.multi_class:
+            onehot = torch.zeros(self.num_classes)
+            onehot[results['label']] = 1.
+            results['label'] = onehot
+
         return self.pipeline(results)
 
     def prepare_test_frames(self, idx):
         """Prepare the frames for testing given the index."""
-        results = copy.deepcopy(self.video_infos[idx])
+        if self.sample_by_class:
+            # Then, the idx is the class index
+            samples = self.video_infos_by_class[idx]
+            results = copy.deepcopy(np.random.choice(samples))
+        else:
+            results = copy.deepcopy(self.video_infos[idx])
         results['filename_tmpl'] = self.filename_tmpl
         results['modality'] = self.modality
         results['start_index'] = self.start_index
+
+        # prepare tensor in getitem
+        if self.multi_class:
+            onehot = torch.zeros(self.num_classes)
+            onehot[results['label']] = 1.
+            results['label'] = onehot
+
         return self.pipeline(results)
-
-    def evaluate(self,
-                 results,
-                 metrics='top_k_accuracy',
-                 topk=(1, 5),
-                 logger=None):
-        """Evaluation in rawframe dataset.
-
-        Args:
-            results (list): Output results.
-            metrics (str | sequence[str]): Metrics to be performed.
-                Defaults: 'top_k_accuracy'.
-            logger (obj): Training logger. Defaults: None.
-            topk (int | tuple[int]): K value for top_k_accuracy metric.
-                Defaults: (1, 5).
-            logger (logging.Logger | None): Logger for recording.
-                Default: None.
-
-        Returns:
-            dict: Evaluation results dict.
-        """
-
-        if not isinstance(results, list):
-            raise TypeError(f'results must be a list, but got {type(results)}')
-        assert len(results) == len(self), (
-            f'The length of results is not equal to the dataset len: '
-            f'{len(results)} != {len(self)}')
-
-        if not isinstance(topk, (int, tuple)):
-            raise TypeError(
-                f'topk must be int or tuple of int, but got {type(topk)}')
-
-        if isinstance(topk, int):
-            topk = (topk, )
-
-        metrics = metrics if isinstance(metrics, (list, tuple)) else [metrics]
-        allowed_metrics = [
-            'top_k_accuracy', 'mean_class_accuracy', 'mean_average_precision'
-        ]
-        for metric in metrics:
-            if metric not in allowed_metrics:
-                raise KeyError(f'metric {metric} is not supported')
-
-        eval_results = {}
-        gt_labels = [ann['label'] for ann in self.video_infos]
-
-        for metric in metrics:
-            msg = f'Evaluating {metric}...'
-            if logger is None:
-                msg = '\n' + msg
-            print_log(msg, logger=logger)
-
-            if metric == 'top_k_accuracy':
-                top_k_acc = top_k_accuracy(results, gt_labels, topk)
-                log_msg = []
-                for k, acc in zip(topk, top_k_acc):
-                    eval_results[f'top{k}_acc'] = acc
-                    log_msg.append(f'\ntop{k}_acc\t{acc:.4f}')
-                log_msg = ''.join(log_msg)
-                print_log(log_msg, logger=logger)
-                continue
-
-            if metric == 'mean_class_accuracy':
-                mean_acc = mean_class_accuracy(results, gt_labels)
-                eval_results['mean_class_accuracy'] = mean_acc
-                log_msg = f'\nmean_acc\t{mean_acc:.4f}'
-                print_log(log_msg, logger=logger)
-                continue
-
-            if metric == 'mean_average_precision':
-                gt_labels = [label.cpu().numpy() for label in gt_labels]
-                mAP = mean_average_precision(results, gt_labels)
-                eval_results['mean_average_precision'] = mAP
-                log_msg = f'\nmean_average_precision\t{mAP:.4f}'
-                print_log(log_msg, logger=logger)
-                continue
-
-        return eval_results

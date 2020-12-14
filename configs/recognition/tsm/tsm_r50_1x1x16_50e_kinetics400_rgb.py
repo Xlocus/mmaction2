@@ -5,11 +5,13 @@ model = dict(
         type='ResNetTSM',
         pretrained='torchvision://resnet50',
         depth=50,
+        num_segments=16,
         norm_eval=False,
         shift_div=8),
     cls_head=dict(
         type='TSMHead',
         num_classes=400,
+        num_segments=16,
         in_channels=2048,
         spatial_type='avg',
         consensus=dict(type='AvgConsensus', dim=1),
@@ -18,7 +20,7 @@ model = dict(
         is_shift=True))
 # model training and testing settings
 train_cfg = None
-test_cfg = dict(average_clips=None)
+test_cfg = dict(average_clips='prob')
 # dataset settings
 dataset_type = 'RawframeDataset'
 data_root = 'data/kinetics400/rawframes_train'
@@ -110,7 +112,7 @@ lr_config = dict(policy='step', step=[20, 40])
 total_epochs = 50
 checkpoint_config = dict(interval=5)
 evaluation = dict(
-    interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'], topk=(1, 5))
+    interval=5, metrics=['top_k_accuracy', 'mean_class_accuracy'])
 log_config = dict(
     interval=20,
     hooks=[

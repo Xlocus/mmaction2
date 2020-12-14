@@ -1,7 +1,7 @@
+import torch.nn as nn
 from mmcv.cnn import ConvModule, constant_init, kaiming_init
 from mmcv.runner import _load_checkpoint, load_checkpoint
 from mmcv.utils import _BatchNorm
-from torch import nn as nn
 from torch.utils import checkpoint as cp
 
 from ...utils import get_root_logger
@@ -16,7 +16,7 @@ class BasicBlock(nn.Module):
         planes (int): Number of channels produced by some norm/conv2d layers.
         stride (int): Stride in the conv layer. Default: 1.
         dilation (int): Spacing between kernel elements. Default: 1.
-        downsample (nn.Module): Downsample layer. Default: None.
+        downsample (nn.Module | None): Downsample layer. Default: None.
         style (str): `pytorch` or `caffe`. If set to "pytorch", the stride-two
             layer is the 3x3 conv layer, otherwise the stride-two layer is
             the first 1x1 conv layer. Default: 'pytorch'.
@@ -109,7 +109,7 @@ class Bottleneck(nn.Module):
             Number of channels produced by some norm layes and conv layers
         stride (int): Spatial stride in the conv layer. Default: 1.
         dilation (int): Spacing between kernel elements. Default: 1.
-        downsample (nn.Module): Downsample layer. Default: None.
+        downsample (nn.Module | None): Downsample layer. Default: None.
         style (str): `pytorch` or `caffe`. If set to "pytorch", the stride-two
             layer is the 3x3 conv layer, otherwise the stride-two layer is
             the first 1x1 conv layer. Default: 'pytorch'.
@@ -241,9 +241,9 @@ def make_res_layer(block,
         style (str): `pytorch` or `caffe`. If set to "pytorch", the stride-two
             layer is the 3x3 conv layer, otherwise the stride-two layer is
             the first 1x1 conv layer. Default: 'pytorch'.
-        conv_cfg (dict): Config for norm layers. Default: None.
-        norm_cfg (dict): Config for norm layers. Default: None.
-        act_cfg (dict): Config for activate layers. Default: None.
+        conv_cfg (dict | None): Config for norm layers. Default: None.
+        norm_cfg (dict | None): Config for norm layers. Default: None.
+        act_cfg (dict | None): Config for activate layers. Default: None.
         with_cp (bool): Use checkpoint or not. Using checkpoint will save some
             memory while slowing down the training speed. Default: False.
 
@@ -302,6 +302,7 @@ class ResNet(nn.Module):
         in_channels (int): Channel num of input features. Default: 3.
         num_stages (int): Resnet stages. Default: 4.
         strides (Sequence[int]): Strides of the first block of each stage.
+        out_indices (Sequence[int]): Indices of output feature. Default: (3, ).
         dilations (Sequence[int]): Dilation of each stage.
         style (str): ``pytorch`` or ``caffe``. If set to "pytorch", the
             stride-two layer is the 3x3 conv layer, otherwise the stride-two
@@ -315,7 +316,7 @@ class ResNet(nn.Module):
         act_cfg (dict): Config for activate layers.
             Default: dict(type='ReLU', inplace=True).
         norm_eval (bool): Whether to set BN layers to eval mode, namely, freeze
-            running stats (mean and var). Default: True.
+            running stats (mean and var). Default: False.
         partial_bn (bool): Whether to use partial bn. Default: False.
         with_cp (bool): Use checkpoint or not. Using checkpoint will save some
             memory while slowing down the training speed. Default: False.
@@ -335,6 +336,7 @@ class ResNet(nn.Module):
                  torchvision_pretrain=True,
                  in_channels=3,
                  num_stages=4,
+                 out_indices=(3, ),
                  strides=(1, 2, 2, 2),
                  dilations=(1, 1, 1, 1),
                  style='pytorch',
@@ -342,7 +344,7 @@ class ResNet(nn.Module):
                  conv_cfg=dict(type='Conv'),
                  norm_cfg=dict(type='BN2d', requires_grad=True),
                  act_cfg=dict(type='ReLU', inplace=True),
-                 norm_eval=True,
+                 norm_eval=False,
                  partial_bn=False,
                  with_cp=False):
         super().__init__()
@@ -353,7 +355,9 @@ class ResNet(nn.Module):
         self.pretrained = pretrained
         self.torchvision_pretrain = torchvision_pretrain
         self.num_stages = num_stages
-        assert num_stages >= 1 and num_stages <= 4
+        assert 1 <= num_stages <= 4
+        self.out_indices = out_indices
+        assert max(out_indices) < num_stages
         self.strides = strides
         self.dilations = dilations
         assert len(strides) == len(dilations) == num_stages
@@ -412,7 +416,8 @@ class ResNet(nn.Module):
             act_cfg=self.act_cfg)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
-    def _load_conv_params(self, conv, state_dict_tv, module_name_tv,
+    @staticmethod
+    def _load_conv_params(conv, state_dict_tv, module_name_tv,
                           loaded_param_names):
         """Load the conv parameters of resnet from torchvision.
 
@@ -435,8 +440,8 @@ class ResNet(nn.Module):
             conv.bias.data.copy_(state_dict_tv[bias_tv_name])
             loaded_param_names.append(bias_tv_name)
 
-    def _load_bn_params(self, bn, state_dict_tv, module_name_tv,
-                        loaded_param_names):
+    @staticmethod
+    def _load_bn_params(bn, state_dict_tv, module_name_tv, loaded_param_names):
         """Load the bn parameters of resnet from torchvision.
 
         Args:
@@ -463,10 +468,7 @@ class ResNet(nn.Module):
                 param.data.copy_(param_tv)
                 loaded_param_names.append(param_tv_name)
 
-    def _load_torchvision_checkpoint(self,
-                                     pretrained,
-                                     strict=False,
-                                     logger=None):
+    def _load_torchvision_checkpoint(self, logger=None):
         """Initiate the parameters from torchvision pretrained checkpoint."""
         state_dict_torchvision = _load_checkpoint(self.pretrained)
         if 'state_dict' in state_dict_torchvision:
@@ -507,8 +509,7 @@ class ResNet(nn.Module):
             logger = get_root_logger()
             if self.torchvision_pretrain:
                 # torchvision's
-                self._load_torchvision_checkpoint(
-                    self.pretrained, strict=False, logger=logger)
+                self._load_torchvision_checkpoint(logger)
             else:
                 # ours
                 load_checkpoint(
@@ -534,10 +535,16 @@ class ResNet(nn.Module):
         """
         x = self.conv1(x)
         x = self.maxpool(x)
-        for layer_name in self.res_layers:
+        outs = []
+        for i, layer_name in enumerate(self.res_layers):
             res_layer = getattr(self, layer_name)
             x = res_layer(x)
-        return x
+            if i in self.out_indices:
+                outs.append(x)
+        if len(outs) == 1:
+            return outs[0]
+
+        return tuple(outs)
 
     def _freeze_stages(self):
         """Prevent all the parameters from being optimized before

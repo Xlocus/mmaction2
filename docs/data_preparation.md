@@ -1,5 +1,19 @@
 # Data Preparation
 
+We provide some tips for MMAction2 data preparation in this file.
+
+<!-- TOC -->
+
+- [Notes on Video Data Format](#notes-on-video-data-format)
+- [Getting Data](#getting-data)
+  * [Prepare videos](#prepare-videos)
+  * [Extract frames](#extract-frames)
+    + [Alternative to denseflow](#alternative-to-denseflow)
+  * [Generate file list](#generate-file-list)
+  * [Prepare audio](#prepare-audio)
+
+<!-- TOC -->
+
 ## Notes on Video Data Format
 
 MMAction2 supports two types of data format: raw frames and video. The former is widely used in previous projects such as [TSN](https://github.com/yjxiong/temporal-segment-networks).
@@ -7,24 +21,6 @@ This is fast when SSD is available but fails to scale to the fast-growing datase
 (For example, the newest edition of [Kinetics](https://deepmind.com/research/open-source/open-source-datasets/kinetics/) has 650K  videos and the total frames will take up several TBs.)
 The latter saves much space but has to do the computation intensive video decoding at execution time
 To make video decoding faster, we support several efficient video loading libraries, such as [decord](https://github.com/zhreshold/decord), [PyAV](https://github.com/PyAV-Org/PyAV), etc.
-
-## Supported Datasets
-
-The supported datasets are listed below.
-We provide shell scripts for data preparation under the path `$MMACTION2/tools/data/`.
-To ease usage, we provide tutorials of data deployment for each dataset.
-
-- [UCF101](https://www.crcv.ucf.edu/research/data-sets/ucf101/): See [preparing_ucf101.md](/tools/data/ucf101/preparing_ucf101.md).
-- [HMDB51](https://serre-lab.clps.brown.edu/resource/hmdb-a-large-human-motion-database/): See [preparing_hmdb51.md](/tools/data/hmdb51/preparing_hmdb51.md).
-- [Kinetics400](https://deepmind.com/research/open-source/kinetics): See [preparing_kinetics400.md](/tools/data/kinetics400/preparing_kinetics400.md)
-- [THUMOS14](https://www.crcv.ucf.edu/THUMOS14/download.html): See [preparing_thumos14.md](/tools/data/thumos14/preparing_thumos14.md)
-- [Something-Something V1](https://20bn.com/datasets/something-something/v1): See [preparing_sthv1.md](/tools/data/sthv1/preparing_sthv1.md)
-- [Something-Something V2](https://20bn.com/datasets/something-something): See [preparing_sthv2.md](/tools/data/sthv2/preparing_sthv2.md)
-- [Moments in Time](http://moments.csail.mit.edu/): See [preparing_mit.md](/tools/data/mit/preparing_mit.md)
-- [Multi-Moments in Time](http://moments.csail.mit.edu/challenge_iccv_2019.html): See [preparing_mmit.md](/tools/data/mmit/preparing_mmit.md)
-- ActivityNet_feature: See [praparing_activitynet.md](/tools/data/activitynet/preparing_activitynet.md)
-
-Now, you can switch to [getting_started.md](getting_started.md) to train and test the model.
 
 ## Getting Data
 
@@ -49,8 +45,8 @@ it is beneficial to use the same tool to do both frame extraction and the flow c
 ```shell
 python build_rawframes.py ${SRC_FOLDER} ${OUT_FOLDER} [--task ${TASK}] [--level ${LEVEL}] \
     [--num-worker ${NUM_WORKER}] [--flow-type ${FLOW_TYPE}] [--out-format ${OUT_FORMAT}] \
-    [--ext ${EXT}] [--new-width ${NEW_WIDTH}] [--new-height ${NEW_HEIGHT}] [--new-short ${NEW_SHORT}]
-    [--resume] [--use-opencv]
+    [--ext ${EXT}] [--new-width ${NEW_WIDTH}] [--new-height ${NEW_HEIGHT}] [--new-short ${NEW_SHORT}] \
+    [--resume] [--use-opencv] [--mixed-ext]
 ```
 
 - `SRC_FOLDER`: Folder of the original video.
@@ -66,6 +62,7 @@ python build_rawframes.py ${SRC_FOLDER} ${OUT_FOLDER} [--task ${TASK}] [--level 
 - `NEW_SHORT`: Resized image short side length keeping ratio.
 - `--resume`: Whether to resume optical flow extraction instead of overwriting.
 - `--use-opencv`: Whether to use OpenCV to extract rgb frames.
+- `--mixed-ext`: Indicate whether process video files with mixed extensions.
 
 The recommended practice is
 
@@ -76,6 +73,25 @@ The recommended practice is
 ln -s ${YOUR_FOLDER} $MMACTION2/data/$DATASET/rawframes
 ```
 
+#### Alternative to denseflow
+
+In case your device doesn't fulfill the installation requirement of [denseflow](https://github.com/open-mmlab/denseflow)(like Nvidia driver version), or you just want to see some quick demos about flow extraction, we provide a python script `tools/flow_extraction.py` as an alternative to denseflow. You can use it for rgb frames and optical flow extraction from one or several videos. Note that the speed of the script is much slower than denseflow, since it runs optical flow algorithms on CPU.
+
+```shell
+python tools/flow_extraction.py --input ${INPUT} [--prefix ${PREFIX}] [--dest ${DEST}] [--rgb-tmpl ${RGB_TMPL}] \
+    [--flow-tmpl ${FLOW_TMPL}] [--start-idx ${START_IDX}] [--method ${METHOD}] [--bound ${BOUND}] [--save-rgb]
+```
+
+- `INPUT`:  Videos for frame extraction, can be single video or a video list, the video list should be a txt file and just consists of filenames without directories.
+- `PREFIX`: The prefix of input videos, used when input is a video list.
+- `DEST`: The destination to save extracted frames.
+- `RGB_TMPL`: The template filename of rgb frames.
+- `FLOW_TMPL`: The template filename of flow frames.
+- `START_IDX`: The start index of extracted frames.
+- `METHOD`: The method used to generate flow.
+- `BOUND`: The maximum of optical flow.
+- `SAVE_RGB`: Also save extracted rgb frames.
+
 ### Generate file list
 
 We provide a convenient script to generate annotation file list. You can use the following command to extract frames.
@@ -85,7 +101,7 @@ cd $MMACTION2
 python tools/data/build_file_list.py ${DATASET} ${SRC_FOLDER} [--rgb-prefix ${RGB_PREFIX}] \
     [--flow-x-prefix ${FLOW_X_PREFIX}] [--flow-y-prefix ${FLOW_Y_PREFIX}] [--num-split ${NUM_SPLIT}] \
     [--subset ${SUBSET}] [--level ${LEVEL}] [--format ${FORMAT}] [--out-root-path ${OUT_ROOT_PATH}] \
-    [--shuffle]
+    [--seed ${SEED}] [--shuffle]
 ```
 
 - `DATASET`: Dataset to be prepared, e.g., `ucf101`, `kinetics400`, `thumos14`, `sthv1`, `sthv2`, etc.
@@ -100,4 +116,38 @@ python tools/data/build_file_list.py ${DATASET} ${SRC_FOLDER} [--rgb-prefix ${RG
 - `LEVEL`: Directory level. 1 for the single-level directory or 2 for the two-level directory.
 - `FORMAT`: Source data format to generate file list. Allowed choices are `rawframes`, `videos`.
 - `OUT_ROOT_PATH`: Root path for output
+- `SEED`: Random seed.
 - `--shuffle`: Whether to shuffle the file list.
+
+Now, you can go to [getting_started.md](getting_started.md) to train and test the model.
+
+### Prepare audio
+
+We also provide a simple script for audio waveform extraction and mel-spectrogram generation.
+
+```shell
+cd $MMACTION2
+python tools/data/extract_audio.py ${ROOT} ${DST_ROOT} [--ext ${EXT}] [--num-workers ${N_WORKERS}] \
+    [--level ${LEVEL}]
+```
+
+- `ROOT`: The root directory of the videos.
+- `DST_ROOT`: The destination root directory of the audios.
+- `EXT`: Extention of the video files. e.g., `.mp4`.
+- `N_WORKERS`: Number of processes to be used.
+
+After extracting audios, you are free to decode and generate the spectrogram on-the-fly such as [this](/configs/audio_recognition/tsn_r50_64x1x1_kinetics400_audio.py). As for the annotations, you can directly use those of the rawframes as long as you keep the relative position of audio files same as the rawframes directory. However, extracting spectrogram on-the-fly is slow and bad for prototype iteration. Therefore, we also provide a script (and many useful tools to play with) for you to generation spectrogram off-line.
+
+```shell
+cd $MMACTION2
+python tools/data/build_audio_features.py ${AUDIO_HOME_PATH} ${SPECTROGRAM_SAVE_PATH} [--level ${LEVEL}] \
+    [--ext $EXT] [--num-workers $N_WORKERS] [--part $PART]
+```
+
+- `AUDIO_HOME_PATH`: The root directory of the audio files.
+- `SPECTROGRAM_SAVE_PATH`: The destination root directory of the audio features.
+- `EXT`: Extention of the audio files. e.g., `.m4a`.
+- `N_WORKERS`: Number of processes to be used.
+- `PART`: Determines how many parts to be splited and which part to run. e.g., `2/5` means splitting all files into 5-fold and executing the 2nd part. This is useful if you have several machines.
+
+The annotations for audio spectrogram features are identical to those of rawframes. You can simply make a copy of `dataset_[train/val]_list_rawframes.txt` and rename it as `dataset_[train/val]_list_audio_feature.txt`

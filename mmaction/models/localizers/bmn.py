@@ -20,7 +20,7 @@ class BMN(BaseLocalizer):
     Code Reference https://github.com/JJBOY/BMN-Boundary-Matching-Network
 
     Args:
-        temporal_dimension (int): Total frames selected for each video.
+        temporal_dim (int): Total frames selected for each video.
         boundary_ratio (float): Ratio for determining video boundaries.
         num_samples (int): Number of samples for each proposal.
         num_samples_per_bin (int): Number of bin samples for each sample.
@@ -29,6 +29,8 @@ class BMN(BaseLocalizer):
         soft_nms_low_threshold (float): Soft NMS low threshold.
         soft_nms_high_threshold (float): Soft NMS high threshold.
         post_process_top_k (int): Top k proposals in post process.
+        feature_extraction_interval (int):
+            Interval used in feature extraction. Default: 16.
         loss_cls (dict): Config for building loss.
             Default: ``dict(type='BMNLoss')``.
         hidden_dim_1d (int): Hidden dim for 1d conv. Default: 256.
@@ -46,11 +48,12 @@ class BMN(BaseLocalizer):
                  soft_nms_low_threshold,
                  soft_nms_high_threshold,
                  post_process_top_k,
+                 feature_extraction_interval=16,
                  loss_cls=dict(type='BMNLoss'),
                  hidden_dim_1d=256,
                  hidden_dim_2d=128,
                  hidden_dim_3d=512):
-        super().__init__()
+        super(BaseLocalizer, self).__init__()
 
         self.tscale = temporal_dim
         self.boundary_ratio = boundary_ratio
@@ -61,6 +64,7 @@ class BMN(BaseLocalizer):
         self.soft_nms_low_threshold = soft_nms_low_threshold
         self.soft_nms_high_threshold = soft_nms_high_threshold
         self.post_process_top_k = post_process_top_k
+        self.feature_extraction_interval = feature_extraction_interval
         self.loss_cls = build_loss(loss_cls)
         self.hidden_dim_1d = hidden_dim_1d
         self.hidden_dim_2d = hidden_dim_2d
@@ -260,7 +264,8 @@ class BMN(BaseLocalizer):
                                         self.soft_nms_alpha,
                                         self.soft_nms_low_threshold,
                                         self.soft_nms_high_threshold,
-                                        self.post_process_top_k)
+                                        self.post_process_top_k,
+                                        self.feature_extraction_interval)
         output = [
             dict(
                 video_name=video_info['video_name'],
@@ -345,10 +350,11 @@ class BMN(BaseLocalizer):
             label_end = label_end.to(device)
             return self.forward_train(raw_feature, label_confidence,
                                       label_start, label_end)
-        else:
-            return self.forward_test(raw_feature, video_meta)
 
-    def _get_interp1d_bin_mask(self, seg_tmin, seg_tmax, tscale, num_samples,
+        return self.forward_test(raw_feature, video_meta)
+
+    @staticmethod
+    def _get_interp1d_bin_mask(seg_tmin, seg_tmax, tscale, num_samples,
                                num_samples_per_bin):
         """Generate sample mask for a boundary-matching pair."""
         plen = float(seg_tmax - seg_tmin)

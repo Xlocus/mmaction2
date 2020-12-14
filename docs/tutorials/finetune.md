@@ -3,13 +3,25 @@
 This tutorial provides instructions for users to use the pre-trained models
 to finetune them on other datasets, so that better performance can be get.
 
+<!-- TOC -->
+
+- [Outline](#outline)
+- [Modify Head](#modify-head)
+- [Modify Dataset](#modify-dataset)
+- [Modify Training Schedule](#modify-training-schedule)
+- [Use Pre-Trained Model](#use-pre-trained-model)
+
+<!-- TOC -->
+
+## Outline
+
 There are two steps to finetune a model on a new dataset.
 
 1. Add support for the new dataset. See [Tutorial 2: Adding New Dataset](new_dataset.md).
 1. Modify the configs. This will be discussed in this tutorial.
 
 For example, if the user want to finetune models pre-trained on Kinetics-400 Dataset to another dataset, say UCF101,
-then four parts in the config (see [here](../config_recognition.md)) needs attention.
+then four parts in the config (see [here](../config.md)) needs attention.
 
 ## Modify Head
 
@@ -58,7 +70,6 @@ data_root_val = 'data/ucf101/rawframes_val/'
 ann_file_train = 'data/ucf101/ucf101_train_list.txt'
 ann_file_val = 'data/ucf101/ucf101_val_list.txt'
 ann_file_test = 'data/ucf101/ucf101_val_list.txt'
-
 ```
 
 ## Modify Training Schedule

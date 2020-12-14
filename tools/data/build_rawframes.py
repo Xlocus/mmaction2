@@ -39,8 +39,12 @@ def extract_frame(vid_item):
                 if vr[i] is not None:
                     w, h, c = np.shape(vr[i])
                     if args.new_short == 0:
-                        out_img = mmcv.imresize(vr[i], (args.new_width,
-                                                        args.new_height))
+                        if args.new_width == 0 or args.new_height == 0:
+                            # Keep original shape
+                            out_img = vr[i]
+                        else:
+                            out_img = mmcv.imresize(vr[i], (args.new_width,
+                                                            args.new_height))
                     else:
                         if min(h, w) == h:
                             new_h = args.new_short
@@ -149,6 +153,10 @@ def parse_args():
         choices=['avi', 'mp4', 'webm'],
         help='video file extensions')
     parser.add_argument(
+        '--mixed-ext',
+        action='store_true',
+        help='process video files with mixed extensions')
+    parser.add_argument(
         '--new-width', type=int, default=0, help='resize image width')
     parser.add_argument(
         '--new-height', type=int, default=0, help='resize image height')
@@ -198,10 +206,15 @@ if __name__ == '__main__':
         print('Total number of rgb frame folders found: ', len(fullpath_list))
     else:
         print('Reading videos from folder: ', args.src_dir)
-        print('Extension of videos: ', args.ext)
-        fullpath_list = glob.glob(args.src_dir + '/*' * args.level + '.' +
-                                  args.ext)
-        done_fullpath_list = glob.glob(args.out_dir + '/*' * args.level)
+        if args.mixed_ext:
+            print('Extension of videos is mixed')
+            fullpath_list = glob.glob(args.src_dir + '/*' * args.level)
+            done_fullpath_list = glob.glob(args.out_dir + '/*' * args.level)
+        else:
+            print('Extension of videos: ', args.ext)
+            fullpath_list = glob.glob(args.src_dir + '/*' * args.level + '.' +
+                                      args.ext)
+            done_fullpath_list = glob.glob(args.out_dir + '/*' * args.level)
         print('Total number of videos found: ', len(fullpath_list))
 
     if args.resume:

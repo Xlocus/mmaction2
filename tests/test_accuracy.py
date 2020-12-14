@@ -1,13 +1,15 @@
+import os.path as osp
 import random
 
 import numpy as np
 import pytest
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 
-from mmaction.core import (average_recall_at_avg_proposals, confusion_matrix,
+from mmaction.core import (ActivityNetDetection,
+                           average_recall_at_avg_proposals, confusion_matrix,
                            get_weighted_score, mean_average_precision,
-                           mean_class_accuracy, pairwise_temporal_iou,
-                           top_k_accuracy)
+                           mean_class_accuracy, mmit_mean_average_precision,
+                           pairwise_temporal_iou, top_k_accuracy)
 
 
 def gt_confusion_matrix(gt_labels, pred_labels, normalize=None):
@@ -45,6 +47,23 @@ def gt_confusion_matrix(gt_labels, pred_labels, normalize=None):
             confusion_mat /= s
 
     return confusion_mat
+
+
+def test_activitynet_detection():
+    data_prefix = osp.join(osp.dirname(__file__), 'data/test_eval_detection')
+    gt_path = osp.join(data_prefix, 'gt.json')
+    result_path = osp.join(data_prefix, 'result.json')
+    detection = ActivityNetDetection(gt_path, result_path)
+
+    results = detection.evaluate()
+    mAP = np.array([
+        0.71428571, 0.71428571, 0.71428571, 0.6875, 0.6875, 0.59722222,
+        0.52083333, 0.52083333, 0.52083333, 0.5
+    ])
+    average_mAP = 0.6177579365079365
+
+    assert_array_almost_equal(results[0], mAP)
+    assert_array_almost_equal(results[1], average_mAP)
 
 
 def test_confusion_matrix():
@@ -147,11 +166,11 @@ def test_mean_class_accuracy():
     assert mean_class_accuracy(scores, mean_cls_acc_100) == 1.0
 
 
-def test_mean_average_precision():
+def test_mmit_mean_average_precision():
     # One sample
     y_true = [np.array([0, 0, 1, 1])]
     y_scores = [np.array([0.1, 0.4, 0.35, 0.8])]
-    map = mean_average_precision(y_scores, y_true)
+    map = mmit_mean_average_precision(y_scores, y_true)
 
     precision = [2.0 / 3.0, 0.5, 1., 1.]
     recall = [1., 0.5, 0.5, 0.]
@@ -165,10 +184,25 @@ def test_pairwise_temporal_iou():
     with pytest.raises(ValueError):
         pairwise_temporal_iou(target_segments, candidate_segments)
 
+    # test temporal iou
     target_segments = np.array([[1, 2], [2, 3]])
     candidate_segments = np.array([[2, 3], [2.5, 3]])
-    temporal_iou = pairwise_temporal_iou(target_segments, candidate_segments)
-    assert_array_equal(temporal_iou, [[0, 1], [0, 0.5]])
+    temporal_iou = pairwise_temporal_iou(candidate_segments, target_segments)
+    assert_array_equal(temporal_iou, [[0, 0], [1, 0.5]])
+
+    # test temporal overlap_self
+    target_segments = np.array([[1, 2], [2, 3]])
+    candidate_segments = np.array([[2, 3], [2.5, 3]])
+    temporal_iou, temporal_overlap_self = pairwise_temporal_iou(
+        candidate_segments, target_segments, calculate_overlap_self=True)
+    assert_array_equal(temporal_overlap_self, [[0, 0], [1, 1]])
+
+    # test temporal overlap_self when candidate_segments is 1d
+    target_segments = np.array([[1, 2], [2, 3]])
+    candidate_segments = np.array([2.5, 3])
+    temporal_iou, temporal_overlap_self = pairwise_temporal_iou(
+        candidate_segments, target_segments, calculate_overlap_self=True)
+    assert_array_equal(temporal_overlap_self, [0, 1])
 
 
 def test_average_recall_at_avg_proposals():
@@ -235,3 +269,25 @@ def test_get_weighted_score():
         x * coeff_a + y * coeff_b for x, y in zip(score_a, score_b)
     ]
     assert np.all(np.isclose(np.array(ground_truth), np.array(weighted_score)))
+
+
+def test_mean_average_precision():
+
+    def content_for_unittest(scores, labels, result):
+        gt = mean_average_precision(scores, labels)
+        assert gt == result
+
+    scores = [
+        np.array([0.1, 0.2, 0.3, 0.4]),
+        np.array([0.2, 0.3, 0.4, 0.1]),
+        np.array([0.3, 0.4, 0.1, 0.2]),
+        np.array([0.4, 0.1, 0.2, 0.3])
+    ]
+
+    label1 = np.array([[1, 1, 0, 0], [1, 0, 1, 1], [1, 0, 1, 0], [1, 1, 0, 1]])
+    result1 = 2 / 3
+    label2 = np.array([[0, 1, 0, 1], [0, 1, 1, 0], [1, 0, 1, 0], [0, 0, 1, 1]])
+    result2 = np.mean([0.5, 0.5833333333333333, 0.8055555555555556, 1.0])
+
+    content_for_unittest(scores, label1, result1)
+    content_for_unittest(scores, label2, result2)

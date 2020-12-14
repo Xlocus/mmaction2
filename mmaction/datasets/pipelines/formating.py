@@ -16,20 +16,19 @@ def to_tensor(data):
     """
     if isinstance(data, torch.Tensor):
         return data
-    elif isinstance(data, np.ndarray):
+    if isinstance(data, np.ndarray):
         return torch.from_numpy(data)
-    elif isinstance(data, Sequence) and not mmcv.is_str(data):
+    if isinstance(data, Sequence) and not mmcv.is_str(data):
         return torch.tensor(data)
-    elif isinstance(data, int):
+    if isinstance(data, int):
         return torch.LongTensor([data])
-    elif isinstance(data, float):
+    if isinstance(data, float):
         return torch.FloatTensor([data])
-    else:
-        raise TypeError(f'type {type(data)} cannot be converted to tensor.')
+    raise TypeError(f'type {type(data)} cannot be converted to tensor.')
 
 
 @PIPELINES.register_module()
-class ToTensor(object):
+class ToTensor:
     """Convert some values in results dict to `torch.Tensor` type in data
     loader pipeline.
 
@@ -56,7 +55,7 @@ class ToTensor(object):
 
 
 @PIPELINES.register_module()
-class ToDataContainer(object):
+class ToDataContainer:
     """Convert the data to DataContainer.
 
     Args:
@@ -86,7 +85,7 @@ class ToDataContainer(object):
 
 
 @PIPELINES.register_module()
-class ImageToTensor(object):
+class ImageToTensor:
     """Convert image type to `torch.Tensor` type.
 
     Args:
@@ -112,7 +111,7 @@ class ImageToTensor(object):
 
 
 @PIPELINES.register_module()
-class Transpose(object):
+class Transpose:
     """Transpose image channels to a given order.
 
     Args:
@@ -125,7 +124,7 @@ class Transpose(object):
         self.order = order
 
     def __call__(self, results):
-        """Performs the Transpose formating.
+        """Performs the Transpose formatting.
 
         Args:
             results (dict): The resulting dict to be modified and passed
@@ -141,7 +140,7 @@ class Transpose(object):
 
 
 @PIPELINES.register_module()
-class Collect(object):
+class Collect:
     """Collect data from the loader relevant to the specific task.
 
     This keeps the items in ``keys`` as it is, and collect items in
@@ -162,23 +161,16 @@ class Collect(object):
             By default this includes:
 
             - "filename": path to the image file
-
             - "label": label of the image file
-
             - "original_shape": original shape of the image as a tuple
-            (h, w, c)
-
+                (h, w, c)
             - "img_shape": shape of the image input to the network as a tuple
-            (h, w, c).  Note that images may be zero padded on the
-            bottom/right, if the batch tensor is larger than this shape.
-
+                (h, w, c).  Note that images may be zero padded on the
+                bottom/right, if the batch tensor is larger than this shape.
             - "pad_shape": image shape after padding
-
             - "flip_direction": a str in ("horiziontal", "vertival") to
-            indicate if the image is fliped horizontally or vertically.
-
+                indicate if the image is fliped horizontally or vertically.
             - "img_norm_cfg": a dict of normalization information:
-
                 - mean - per channel mean subtraction
                 - std - per channel std divisor
                 - to_rgb - bool indicating if bgr was converted to rgb
@@ -218,7 +210,7 @@ class Collect(object):
 
 
 @PIPELINES.register_module()
-class FormatShape(object):
+class FormatShape:
     """Format final imgs shape to the given input_format.
 
     Required keys are "imgs", "num_clips" and "clip_len", added or modified
@@ -283,6 +275,44 @@ class FormatShape(object):
 
         results['imgs'] = imgs
         results['input_shape'] = imgs.shape
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += f"(input_format='{self.input_format}')"
+        return repr_str
+
+
+@PIPELINES.register_module()
+class FormatAudioShape:
+    """Format final audio shape to the given input_format.
+
+    Required keys are "imgs", "num_clips" and "clip_len", added or modified
+    keys are "imgs" and "input_shape".
+
+    Args:
+        input_format (str): Define the final imgs format.
+    """
+
+    def __init__(self, input_format):
+        self.input_format = input_format
+        if self.input_format not in ['NCTF']:
+            raise ValueError(
+                f'The input format {self.input_format} is invalid.')
+
+    def __call__(self, results):
+        """Performs the FormatShape formatting.
+
+        Args:
+            results (dict): The resulting dict to be modified and passed
+                to the next transform in pipeline.
+        """
+        audios = results['audios']
+        # clip x sample x freq -> clip x channel x sample x freq
+        clip, sample, freq = audios.shape
+        audios = audios.reshape(clip, 1, sample, freq)
+        results['audios'] = audios
+        results['input_shape'] = audios.shape
         return results
 
     def __repr__(self):

@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 
-from mmaction.models import BaseHead, I3DHead, SlowFastHead, TSMHead, TSNHead
+from mmaction.models import (AudioTSNHead, BaseHead, I3DHead, SlowFastHead,
+                             TPNHead, TSMHead, TSNHead, X3DHead)
 
 
 class ExampleHead(BaseHead):
@@ -50,6 +51,40 @@ def test_i3d_head():
 
     # i3d head inference
     cls_scores = i3d_head(feat)
+    assert cls_scores.shape == torch.Size([3, 4])
+
+
+def test_x3d_head():
+    """Test loss method, layer construction, attributes and forward function in
+    x3d head."""
+    x3d_head = X3DHead(in_channels=432, num_classes=4, fc1_bias=False)
+    x3d_head.init_weights()
+
+    assert x3d_head.num_classes == 4
+    assert x3d_head.dropout_ratio == 0.5
+    assert x3d_head.in_channels == 432
+    assert x3d_head.init_std == 0.01
+
+    assert isinstance(x3d_head.dropout, nn.Dropout)
+    assert x3d_head.dropout.p == x3d_head.dropout_ratio
+
+    assert isinstance(x3d_head.fc1, nn.Linear)
+    assert x3d_head.fc1.in_features == x3d_head.in_channels
+    assert x3d_head.fc1.out_features == x3d_head.mid_channels
+    assert x3d_head.fc1.bias is None
+
+    assert isinstance(x3d_head.fc2, nn.Linear)
+    assert x3d_head.fc2.in_features == x3d_head.mid_channels
+    assert x3d_head.fc2.out_features == x3d_head.num_classes
+
+    assert isinstance(x3d_head.pool, nn.AdaptiveAvgPool3d)
+    assert x3d_head.pool.output_size == (1, 1, 1)
+
+    input_shape = (3, 432, 4, 7, 7)
+    feat = torch.rand(input_shape)
+
+    # i3d head inference
+    cls_scores = x3d_head(feat)
     assert cls_scores.shape == torch.Size([3, 4])
 
 
@@ -149,6 +184,36 @@ def test_tsn_head():
     assert cls_scores.shape == torch.Size([1, 4])
 
 
+def test_tsn_head_audio():
+    """Test loss method, layer construction, attributes and forward function in
+    tsn head."""
+    tsn_head_audio = AudioTSNHead(num_classes=4, in_channels=5)
+    tsn_head_audio.init_weights()
+
+    assert tsn_head_audio.num_classes == 4
+    assert tsn_head_audio.dropout_ratio == 0.4
+    assert tsn_head_audio.in_channels == 5
+    assert tsn_head_audio.init_std == 0.01
+    assert tsn_head_audio.spatial_type == 'avg'
+
+    assert isinstance(tsn_head_audio.dropout, nn.Dropout)
+    assert tsn_head_audio.dropout.p == tsn_head_audio.dropout_ratio
+
+    assert isinstance(tsn_head_audio.fc_cls, nn.Linear)
+    assert tsn_head_audio.fc_cls.in_features == tsn_head_audio.in_channels
+    assert tsn_head_audio.fc_cls.out_features == tsn_head_audio.num_classes
+
+    assert isinstance(tsn_head_audio.avg_pool, nn.AdaptiveAvgPool2d)
+    assert tsn_head_audio.avg_pool.output_size == (1, 1)
+
+    input_shape = (8, 5, 7, 7)
+    feat = torch.rand(input_shape)
+
+    # tsn head inference
+    cls_scores = tsn_head_audio(feat)
+    assert cls_scores.shape == torch.Size([8, 4])
+
+
 def test_tsm_head():
     """Test loss method, layer construction, attributes and forward function in
     tsm head."""
@@ -184,4 +249,35 @@ def test_tsm_head():
     tsm_head = TSMHead(num_classes=4, in_channels=2048, temporal_pool=True)
     tsm_head.init_weights()
     cls_scores = tsm_head(feat, num_segs)
+    assert cls_scores.shape == torch.Size([2, 4])
+
+
+def test_tpn_head():
+    """Test loss method, layer construction, attributes and forward function in
+    tpn head."""
+    tpn_head = TPNHead(num_classes=4, in_channels=2048)
+    tpn_head.init_weights()
+
+    assert hasattr(tpn_head, 'avg_pool2d')
+    assert hasattr(tpn_head, 'avg_pool3d')
+    assert isinstance(tpn_head.avg_pool3d, nn.AdaptiveAvgPool3d)
+    assert tpn_head.avg_pool3d.output_size == (1, 1, 1)
+    assert tpn_head.avg_pool2d is None
+
+    input_shape = (4, 2048, 7, 7)
+    feat = torch.rand(input_shape)
+
+    # tpn head inference with num_segs
+    num_segs = 2
+    cls_scores = tpn_head(feat, num_segs)
+    assert isinstance(tpn_head.avg_pool2d, nn.AvgPool3d)
+    assert tpn_head.avg_pool2d.kernel_size == (1, 7, 7)
+    assert cls_scores.shape == torch.Size([2, 4])
+
+    # tpn head inference with no num_segs
+    input_shape = (2, 2048, 3, 7, 7)
+    feat = torch.rand(input_shape)
+    cls_scores = tpn_head(feat)
+    assert isinstance(tpn_head.avg_pool2d, nn.AvgPool3d)
+    assert tpn_head.avg_pool2d.kernel_size == (1, 7, 7)
     assert cls_scores.shape == torch.Size([2, 4])

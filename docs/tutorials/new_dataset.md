@@ -1,5 +1,17 @@
 # Tutorial 2: Adding New Dataset
 
+In this tutorial, we will introduce some methods about how to customize your own dataset by reorganizing data and mixing dataset for the project.
+
+<!-- TOC -->
+
+- [Customize Datasets by Reorganizing Data](#customize-datasets-by-reorganizing-data)
+  * [Reorganize datasets to existing format](#reorganize-datasets-to-existing-format)
+  * [An example of a custom dataset](#an-example-of-a-custom-dataset)
+- [Customize Dataset by Mixing Dataset](#customize-dataset-by-mixing-dataset)
+  * [Repeat dataset](#repeat-dataset)
+
+<!-- TOC -->
+
 ## Customize Datasets by Reorganizing Data
 
 ### Reorganize datasets to existing format
@@ -153,12 +165,12 @@ import os.path as osp
 
 import mmcv
 
-from .base import BaseDatset
+from .base import BaseDataset
 from .registry import DATASETS
 
 
 @DATASETS.register_module()
-class MyDataset(BaseDatset):
+class MyDataset(BaseDataset):
 
     def __init__(self,
                  ann_file,

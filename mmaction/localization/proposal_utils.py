@@ -11,7 +11,7 @@ def temporal_iou(proposal_min, proposal_max, gt_min, gt_max):
         gt_max (float): Groundtruth temporal box max.
 
     Returns:
-        jaccard (list[float]): List of iou scores.
+        list[float]: List of iou scores.
     """
     len_anchors = proposal_max - proposal_min
     int_tmin = np.maximum(proposal_min, gt_min)
@@ -35,7 +35,7 @@ def temporal_iop(proposal_min, proposal_max, gt_min, gt_max):
         gt_max (float): Groundtruth temporal box max.
 
     Returns:
-        scores (list[float]): List of intersection over anchor scores.
+        list[float]: List of intersection over anchor scores.
     """
     len_anchors = np.array(proposal_max - proposal_min)
     int_tmin = np.maximum(proposal_min, gt_min)
@@ -56,7 +56,7 @@ def soft_nms(proposals, alpha, low_threshold, high_threshold, top_k):
         top_k (int): Top k values to be considered.
 
     Returns:
-        new_proposals (np.ndarray): The updated proposals.
+        np.ndarray: The updated proposals.
     """
     proposals = proposals[proposals[:, -1].argsort()[::-1]]
     tstart = list(proposals[:, 0])
@@ -72,7 +72,8 @@ def soft_nms(proposals, alpha, low_threshold, high_threshold, top_k):
         iou_list = temporal_iou(tstart[max_index], tend[max_index],
                                 np.array(tstart), np.array(tend))
         iou_exp_list = np.exp(-np.square(iou_list) / alpha)
-        for idx in range(len(tscore)):
+
+        for idx, _ in enumerate(tscore):
             if idx != max_index:
                 current_iou = iou_list[idx]
                 if current_iou > low_threshold + (high_threshold -
